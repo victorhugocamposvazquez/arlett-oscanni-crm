@@ -15,8 +15,8 @@ export default {
         background: "var(--background)",
         foreground: "var(--foreground)",
         accent: {
-          DEFAULT: "#b8860b",
-          foreground: "#ffffff",
+          DEFAULT: "#c5a059",
+          foreground: "#1c1917",
         },
         muted: {
           DEFAULT: "var(--muted)",

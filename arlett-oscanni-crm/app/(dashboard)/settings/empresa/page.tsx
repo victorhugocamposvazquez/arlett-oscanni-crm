@@ -156,7 +156,7 @@ export default function EmpresaFacturacionPage() {
                   autoComplete="off"
                 />
                 <p className="text-xs text-neutral-500">
-                  URL pública o ruta bajo el mismo sitio. Si está vacío, se usa <code className="text-xs">/images/logo-web.png</code> o la variable
+                  URL pública o ruta bajo el mismo sitio. Si está vacío, se usa <code className="text-xs">/images/logo-arlett.png</code> o la variable
                   pública de entorno.
                 </p>
                 {form.logo_url.trim() && typeof window !== "undefined" ? (

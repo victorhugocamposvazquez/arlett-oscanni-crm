@@ -14,14 +14,13 @@ import { UserPlus, Search } from "lucide-react";
 export default function ClientesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filterActivo, setFilterActivo] = useState<"todos" | "activos" | "inactivos" | "fallecidos">("todos");
+  const [filterActivo, setFilterActivo] = useState<"todos" | "activos" | "inactivos">("todos");
   const [clientes, setClientes] = useState<Array<{
     id: string;
     nombre: string;
     email: string | null;
     telefono: string | null;
     activo: boolean;
-    etiqueta: "fallecido" | null;
   }>>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +28,7 @@ export default function ClientesPage() {
     const supabase = createClient();
     supabase
       .from("clientes")
-      .select("id, nombre, email, telefono, activo, etiqueta")
+      .select("id, nombre, email, telefono, activo")
       .order("created_at", { ascending: false })
       .then(({ data, error: err }) => {
         if (err) {
@@ -52,9 +51,8 @@ export default function ClientesPage() {
         (c.telefono?.includes(q));
       const matchActivo =
         filterActivo === "todos" ||
-        (filterActivo === "activos" && c.activo && c.etiqueta !== "fallecido") ||
-        (filterActivo === "inactivos" && !c.activo && c.etiqueta !== "fallecido") ||
-        (filterActivo === "fallecidos" && c.etiqueta === "fallecido");
+        (filterActivo === "activos" && c.activo) ||
+        (filterActivo === "inactivos" && !c.activo);
       return matchSearch && matchActivo;
     });
   }, [clientes, search, filterActivo]);
@@ -95,7 +93,7 @@ export default function ClientesPage() {
             />
           </div>
           <div className="flex gap-1 rounded-lg border border-border p-1">
-            {(["todos", "activos", "inactivos", "fallecidos"] as const).map((f) => (
+            {(["todos", "activos", "inactivos"] as const).map((f) => (
               <button
                 key={f}
                 type="button"
@@ -106,7 +104,7 @@ export default function ClientesPage() {
                     : "text-neutral-600 hover:bg-neutral-100"
                 }`}
               >
-                {f === "todos" ? "Todos" : f === "activos" ? "Activos" : f === "inactivos" ? "Inactivos" : "Fallecidos"}
+                {f === "todos" ? "Todos" : f === "activos" ? "Activos" : "Inactivos"}
               </button>
             ))}
           </div>
@@ -141,7 +139,6 @@ export default function ClientesPage() {
                   email={c.email}
                   telefono={c.telefono}
                   activo={c.activo}
-                  etiqueta={c.etiqueta}
                 />
               )))}
           </div>

@@ -16,11 +16,10 @@ interface ClienteCardProps {
   email?: string | null;
   telefono?: string | null;
   activo: boolean;
-  etiqueta?: "fallecido" | null;
   onDeleted?: () => void;
 }
 
-export function ClienteCard({ id, nombre, email, telefono, activo, etiqueta, onDeleted }: ClienteCardProps) {
+export function ClienteCard({ id, nombre, email, telefono, activo, onDeleted }: ClienteCardProps) {
   const router = useRouter();
   const cardRef = useRef<HTMLDivElement>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -121,8 +120,8 @@ export function ClienteCard({ id, nombre, email, telefono, activo, etiqueta, onD
             )}
             </Link>
           </div>
-          <Badge variant={etiqueta === "fallecido" ? "fallecido" : activo ? "activo" : "inactivo"} className="shrink-0">
-            {etiqueta === "fallecido" ? "Fallecido" : activo ? "Activo" : "Inactivo"}
+          <Badge variant={activo ? "activo" : "inactivo"} className="shrink-0">
+            {activo ? "Activo" : "Inactivo"}
           </Badge>
           <button
             type="button"

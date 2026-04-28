@@ -81,14 +81,14 @@ export function TopBar() {
           <Link
             href="/"
             className="flex shrink-0 items-center gap-2"
-            aria-label="CRM — Inicio"
+            aria-label="Arlett — Inicio"
           >
             <Image
-              src="/images/logo-web.png"
-              alt=""
-              width={180}
-              height={40}
-              className="h-8 w-auto object-contain sm:h-9"
+              src="/images/logo-arlett.png"
+              alt="Arlett Beauty & Health"
+              width={120}
+              height={120}
+              className="h-9 w-9 object-contain sm:h-10 sm:w-10"
               priority
             />
           </Link>

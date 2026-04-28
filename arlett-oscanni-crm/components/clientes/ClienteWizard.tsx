@@ -24,7 +24,7 @@ const STEPS = [
   { id: 3, title: "Resumen" },
 ];
 
-type WizardData = ClienteStep1Values & ClienteStep2Values & { activo?: boolean; etiqueta?: "fallecido" | null };
+type WizardData = ClienteStep1Values & ClienteStep2Values & { activo?: boolean };
 
 interface ClienteWizardProps {
   clienteId?: string;
@@ -52,7 +52,7 @@ export function ClienteWizard({ clienteId, initialClientePadreId }: ClienteWizar
           setLoading(false);
           return;
         }
-        const r = row as { nombre: string; email: string | null; telefono: string | null; documento_fiscal: string | null; tipo_documento: string | null; tipo_cliente: "particular" | "empresa"; direccion: string | null; codigo_postal: string | null; localidad: string | null; notas: string | null; activo: boolean; etiqueta: "fallecido" | null; cliente_padre_id: string | null };
+        const r = row as { nombre: string; email: string | null; telefono: string | null; documento_fiscal: string | null; tipo_documento: string | null; tipo_cliente: "particular" | "empresa"; direccion: string | null; codigo_postal: string | null; localidad: string | null; notas: string | null; activo: boolean; cliente_padre_id: string | null };
         setData({
           nombre: r.nombre,
           tipo_cliente: r.tipo_cliente ?? "particular",
@@ -66,7 +66,6 @@ export function ClienteWizard({ clienteId, initialClientePadreId }: ClienteWizar
           localidad: r.localidad ?? "",
           notas: r.notas ?? "",
           activo: r.activo ?? true,
-          etiqueta: r.etiqueta ?? null,
         });
         setLoading(false);
       });
@@ -132,8 +131,7 @@ export function ClienteWizard({ clienteId, initialClientePadreId }: ClienteWizar
       codigo_postal: data.codigo_postal || null,
       localidad: data.localidad || null,
       notas: data.notas || null,
-      activo: data.etiqueta === "fallecido" ? false : (data.activo ?? true),
-      etiqueta: data.etiqueta === "fallecido" ? "fallecido" : null,
+      activo: data.activo ?? true,
       cliente_padre_id: tipo_cliente === "empresa" && (data.cliente_padre_id ?? initialClientePadreId) ? (data.cliente_padre_id ?? initialClientePadreId) : null,
     };
     if (clienteId) {
@@ -378,24 +376,11 @@ export function ClienteWizard({ clienteId, initialClientePadreId }: ClienteWizar
                         checked={data.activo ?? true}
                         onChange={(e) => {
                           const checked = e.target.checked;
-                          setData((p) => ({ ...p, activo: checked, etiqueta: checked ? null : p.etiqueta }));
+                          setData((p) => ({ ...p, activo: checked }));
                         }}
                         className="h-4 w-4 rounded border-border"
                       />
                       <Label htmlFor="activo">Cliente activo</Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="etiqueta-fallecido"
-                        checked={data.etiqueta === "fallecido"}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setData((p) => ({ ...p, etiqueta: checked ? "fallecido" : null, activo: checked ? false : p.activo }));
-                        }}
-                        className="h-4 w-4 rounded border-border"
-                      />
-                      <Label htmlFor="etiqueta-fallecido">Fallecido</Label>
                     </div>
                   </div>
                 )}
@@ -440,7 +425,7 @@ export function ClienteWizard({ clienteId, initialClientePadreId }: ClienteWizar
                 {clienteId && (
                   <div>
                     <dt className="text-neutral-500">Estado</dt>
-                    <dd className="font-medium">{data.etiqueta === "fallecido" ? "Fallecido" : data.activo !== false ? "Activo" : "Inactivo"}</dd>
+                    <dd className="font-medium">{data.activo !== false ? "Activo" : "Inactivo"}</dd>
                   </div>
                 )}
               </dl>

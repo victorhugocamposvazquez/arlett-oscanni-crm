@@ -25,7 +25,6 @@ interface Cliente {
   localidad: string | null;
   notas: string | null;
   activo: boolean;
-  etiqueta: "fallecido" | null;
   cliente_padre_id?: string | null;
 }
 
@@ -164,10 +163,8 @@ export default function DetalleClientePage() {
         }
       />
       <div className="mb-6 flex items-center gap-2">
-        <Badge
-          variant={cliente.etiqueta === "fallecido" ? "fallecido" : cliente.activo ? "activo" : "inactivo"}
-        >
-          {cliente.etiqueta === "fallecido" ? "Fallecido" : cliente.activo ? "Activo" : "Inactivo"}
+        <Badge variant={cliente.activo ? "activo" : "inactivo"}>
+          {cliente.activo ? "Activo" : "Inactivo"}
         </Badge>
       </div>
 

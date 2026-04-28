@@ -11,19 +11,19 @@ const plusJakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "CRM — Centro de belleza",
-  description: "Clientes, presupuestos y facturación",
+  title: "Arlett CRM — Beauty & Health",
+  description: "Clientes, presupuestos y facturación — Arlett Beauty & Health",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
-    title: "CRM Belleza",
+    statusBarStyle: "black-translucent",
+    title: "Arlett CRM",
   },
 };
 
 export const viewport: Viewport = {
   viewportFit: "cover",
-  themeColor: "#b8860b",
+  themeColor: "#0a0a0a",
 };
 
 export default function RootLayout({

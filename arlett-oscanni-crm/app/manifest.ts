@@ -2,13 +2,13 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "CRM — Centro de belleza",
-    short_name: "CRM Belleza",
+    name: "Arlett CRM — Beauty & Health",
+    short_name: "Arlett CRM",
     description: "Clientes, presupuestos y facturación",
     start_url: "/",
     display: "standalone",
-    background_color: "#fafaf9",
-    theme_color: "#b8860b",
+    background_color: "#0a0a0a",
+    theme_color: "#c5a059",
     orientation: "portrait-primary",
     scope: "/",
     icons: [

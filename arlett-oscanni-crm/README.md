@@ -27,6 +27,16 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key
 
 ## Despliegue en Vercel (deploy en cada push a GitHub)
 
+### Importante: repositorio monorepo
+
+Si en GitHub el repositorio **no es solo esta carpeta** (por ejemplo la raíz del repo es una carpeta padre con varios proyectos), en Vercel debes fijar el **Root Directory**:
+
+1. **Project → Settings → General → Root Directory**
+2. Valor: **`arlett-oscanni-crm`** (la carpeta donde está `package.json` y `next.config.ts` de este CRM)
+3. Guarda y vuelve a desplegar.
+
+Si dejas la raíz del repo sin apuntar a esa carpeta, **no hay `package.json` en la raíz** y el despliegue puede acabar en **404 en todas las rutas** (incluido `/login`).
+
 ### 1. Subir el proyecto a GitHub
 
 Si aún no tienes repositorio:
@@ -45,7 +55,8 @@ git push -u origin main
 1. Entra en [vercel.com](https://vercel.com) e inicia sesión (con tu cuenta de GitHub si quieres).
 2. **Add New…** → **Project**.
 3. **Import Git Repository**: elige el repo del CRM (si no sale, autoriza a Vercel en GitHub).
-4. Vercel detecta Next.js automáticamente. Revisa:
+4. Si el repo incluye varios proyectos, en **Root Directory** elige **Edit** y pon **`arlett-oscanni-crm`** antes del primer deploy.
+5. Vercel detecta Next.js automáticamente. Revisa:
    - **Framework Preset:** Next.js
    - **Build Command:** `npm run build` (o dejarlo por defecto)
    - **Output Directory:** por defecto (no cambiar)
@@ -101,6 +112,7 @@ La primera vez que uses el proyecto, aplica las migraciones en orden sobre una b
 - El resto son incrementales (IVA/IRPF, RLS, clientes, direcciones, rectificativas, empresa, etc.).
 - **No** re-ejecutar la base en un entorno ya creado; ejecuta solo los ficheros nuevos que falten.
 - `20260428140000_drop_propiedades.sql` elimina la tabla `propiedades` si existía (proyectos antiguos con módulo inmuebles). En instalaciones nuevas no hace nada dañino.
+- `20260428150000_drop_clientes_etiqueta.sql` elimina la columna `clientes.etiqueta` (antigua marca «fallecido»). Idempotente si la columna ya no existe.
 
 Eso incluye:
 

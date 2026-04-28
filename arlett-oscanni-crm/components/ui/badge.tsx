@@ -10,7 +10,6 @@ const badgeVariants = cva(
         default: "border-stone-200 bg-stone-100 text-stone-700",
         activo: "border-amber-300 bg-amber-100 text-amber-900",
         inactivo: "border-stone-200 bg-stone-100 text-stone-500",
-        fallecido: "border-stone-300 bg-stone-200 text-stone-700",
         borrador: "border-amber-300 bg-amber-100 text-amber-800",
         emitida: "border-blue-300 bg-blue-100 text-blue-800",
         pagada: "border-amber-300 bg-amber-100 text-amber-900",

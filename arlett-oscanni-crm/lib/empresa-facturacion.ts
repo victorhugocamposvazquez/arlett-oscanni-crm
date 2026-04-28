@@ -84,7 +84,7 @@ export async function fetchEmisorFacturacion(
 
 /** Construye la URL final del logotipo en la ventana de impresión. */
 export function resolveInvoiceLogoUrl(logoUrl: string, origin: string): string {
-  const fallback = `${origin}/images/logo-web.png`;
+  const fallback = `${origin}/images/logo-arlett.png`;
   const raw = logoUrl.trim();
   if (!raw) return fallback;
   if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
