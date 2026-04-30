@@ -113,6 +113,7 @@ La primera vez que uses el proyecto, aplica las migraciones en orden sobre una b
 - **No** re-ejecutar la base en un entorno ya creado; ejecuta solo los ficheros nuevos que falten.
 - `20260428140000_drop_propiedades.sql` elimina la tabla `propiedades` si existía (proyectos antiguos con módulo inmuebles). En instalaciones nuevas no hace nada dañino.
 - `20260428150000_drop_clientes_etiqueta.sql` elimina la columna `clientes.etiqueta` (antigua marca «fallecido»). Idempotente si la columna ya no existe.
+- Si tras aplicarla ves **`column clientes.etiqueta does not exist`**, suele ser **código o caché antigua** (navegador/PWA) que aún pide esa columna: redespliega la app en Vercel, haz un hard refresh o borra datos del sitio para el service worker. El código actual del repo **no** usa `etiqueta`.
 
 Eso incluye:
 
@@ -124,11 +125,26 @@ Eso incluye:
 - **empresa_facturación:** datos de emisor en facturas (admin).
 - Vistas y funciones auxiliares para métricas financieras.
 
-Para dar rol **admin** a un usuario: en SQL Editor ejecuta por ejemplo:
+Para dar rol **admin** a un usuario por email: en Supabase **SQL Editor** (como `postgres`, sin restricciones RLS), ejecuta sustituyendo el correo:
 
 ```sql
-update public.profiles set role = 'admin' where email = 'tu@email.com';
+-- Recomendado: el email real está en auth.users
+update public.profiles p
+set role = 'admin', updated_at = now()
+from auth.users u
+where p.id = u.id
+  and lower(u.email) = lower('tu@email.com');
 ```
+
+Si el perfil no existiera aún (raro), créalo enlazando el `id` de `auth.users`. Alternativa si `profiles.email` está bien sincronizado:
+
+```sql
+update public.profiles
+set role = 'admin', updated_at = now()
+where lower(email) = lower('tu@email.com');
+```
+
+Cierra sesión en el CRM y vuelve a entrar para que cargue el rol.
 
 ## Estructura
 

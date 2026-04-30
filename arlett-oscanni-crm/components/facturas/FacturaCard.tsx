@@ -105,53 +105,55 @@ export function FacturaCard({
   return (
     <>
       <Card ref={cardRef} className={cn("relative overflow-hidden bg-white/95 py-0", actionsOpen && "z-[200]")}>
-        <div className="relative flex items-center justify-between gap-4 py-4">
-          {selectionMode && (
+        <div className="relative flex flex-col gap-3 py-4 pl-1 pr-11 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pr-4">
+          <div className="flex min-w-0 items-start gap-2 sm:flex-1 sm:items-center">
+            {selectionMode && (
+              <div
+                className="flex shrink-0 pl-1 pr-1"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={() => onToggleSelected?.(id)}
+                  className="h-4 w-4 cursor-pointer rounded border-border text-accent"
+                  aria-label={`Seleccionar factura ${numero}`}
+                />
+              </div>
+            )}
             <div
-              className="flex shrink-0 pl-1 pr-1"
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                if (actionsOpen) {
+                  e.preventDefault();
+                  closeActions();
+                }
+              }}
+              onKeyDown={(e) => {
+                if ((e.key === "Enter" || e.key === " ") && actionsOpen) {
+                  e.preventDefault();
+                  closeActions();
+                }
+              }}
+              className="min-w-0 flex-1 cursor-pointer overflow-hidden"
             >
-              <input
-                type="checkbox"
-                checked={selected}
-                onChange={() => onToggleSelected?.(id)}
-                className="h-4 w-4 cursor-pointer rounded border-border text-accent"
-                aria-label={`Seleccionar factura ${numero}`}
-              />
+              <Link
+                href={`/facturas/${id}`}
+                onClick={(e) => actionsOpen && e.preventDefault()}
+                className="block"
+              >
+                <p className="break-words font-semibold leading-snug text-foreground">{numero}</p>
+                <p className="truncate text-sm text-neutral-500">{clienteNombre}</p>
+              </Link>
             </div>
-          )}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              if (actionsOpen) {
-                e.preventDefault();
-                closeActions();
-              }
-            }}
-            onKeyDown={(e) => {
-              if ((e.key === "Enter" || e.key === " ") && actionsOpen) {
-                e.preventDefault();
-                closeActions();
-              }
-            }}
-            className="min-w-0 flex-1 cursor-pointer"
-          >
-            <Link
-              href={`/facturas/${id}`}
-              onClick={(e) => actionsOpen && e.preventDefault()}
-              className="block"
-            >
-              <p className="font-semibold text-foreground">{numero}</p>
-              <p className="truncate text-sm text-neutral-500">{clienteNombre}</p>
-            </Link>
           </div>
-          <div className="flex shrink-0 items-center gap-4">
-            <p className="text-lg font-semibold tracking-tight">{importe}</p>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 sm:shrink-0 sm:flex-nowrap">
+            <p className="text-lg font-semibold tabular-nums tracking-tight">{importe}</p>
             <div className="flex flex-wrap items-center gap-2">
               {tipoFactura === "rectificativa" && (
-                <Badge variant="borrador" className="bg-amber-100 text-amber-800 border-amber-300 text-[10px]">
+                <Badge variant="borrador" className="border-amber-300 bg-amber-100 text-[10px] text-amber-800">
                   Rectificativa
                 </Badge>
               )}
@@ -167,7 +169,7 @@ export function FacturaCard({
               e.stopPropagation();
               setActionsOpen((v) => !v);
             }}
-            className="flex shrink-0 items-center justify-center rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-foreground"
+            className="absolute right-1 top-4 flex shrink-0 items-center justify-center rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-foreground sm:relative sm:right-auto sm:top-auto sm:translate-y-0"
             aria-label="Abrir acciones"
             aria-expanded={actionsOpen}
           >
