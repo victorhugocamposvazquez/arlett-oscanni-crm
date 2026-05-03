@@ -74,7 +74,7 @@ export function TopBar() {
   return (
     <>
       <header
-        className="sticky top-0 z-40 border-b border-border/80 bg-white/95 backdrop-blur"
+        className="sticky top-0 z-40 border-b border-border/80 bg-white/95 pt-safe-area-top backdrop-blur"
         role="banner"
       >
         <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center justify-between gap-3 px-4 sm:h-16 sm:px-6 lg:px-8">
