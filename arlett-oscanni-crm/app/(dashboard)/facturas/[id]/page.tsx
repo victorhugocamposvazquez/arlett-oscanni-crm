@@ -497,7 +497,6 @@ export default function DetalleFacturaPage() {
               margin: [8, 8, 8, 8],
               filename: safeFilename,
               image: { type: "jpeg", quality: 0.94 },
-              pagebreak: { mode: ["css", "legacy"] },
               html2canvas: {
                 scale: isCoarseMobile ? 1.35 : 1.85,
                 useCORS: true,
@@ -513,31 +512,12 @@ export default function DetalleFacturaPage() {
             .from(body)
             .outputPdf("blob")
             .then(async (blob: Blob) => {
-              if (isCoarseMobile) {
-                const file = new File([blob], safeFilename, { type: "application/pdf" });
-                try {
-                  const canShare =
-                    typeof navigator !== "undefined" &&
-                    typeof navigator.share === "function" &&
-                    typeof navigator.canShare === "function" &&
-                    navigator.canShare({ files: [file] });
-                  if (canShare) {
-                    await navigator.share({
-                      files: [file],
-                      title: `Factura ${factura.numero}`,
-                    });
-                    toast.success("Elige «Guardar en Archivos» o la app deseada.");
-                    return;
-                  }
-                } catch (shareErr: unknown) {
-                  const name = shareErr instanceof Error ? shareErr.name : "";
-                  if (name === "AbortError") return;
-                }
+              const url = URL.createObjectURL(blob);
 
-                const url = URL.createObjectURL(blob);
+              if (isCoarseMobile) {
                 const w = window.open(url, "_blank", "noopener,noreferrer");
                 if (w) {
-                  toast.success("Se abrió el PDF: usa Compartir o Guardar desde el visor.");
+                  toast.success("Vista previa del PDF: desde el visor puedes compartir o guardar.");
                 } else {
                   const a = document.createElement("a");
                   a.href = url;
@@ -547,13 +527,12 @@ export default function DetalleFacturaPage() {
                   document.body.appendChild(a);
                   a.click();
                   document.body.removeChild(a);
-                  toast.info("Si no ves el PDF, permite ventanas emergentes o revisa la carpeta de descargas.");
+                  toast.info("Permite ventanas emergentes para ver el PDF, o revisa descargas.");
                 }
                 globalThis.window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
                 return;
               }
 
-              const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
               a.href = url;
               a.download = safeFilename;
