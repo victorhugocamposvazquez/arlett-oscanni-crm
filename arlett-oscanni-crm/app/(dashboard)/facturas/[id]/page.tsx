@@ -251,11 +251,11 @@ export default function DetalleFacturaPage() {
         const bg = i % 2 === 1 ? "background:#f5f5f5;" : "";
         return `
         <tr style="${bg}">
-          <td style="padding:12px 10px;border-bottom:1px solid #e5e5e5;">${htmlEsc(l.descripcion)}</td>
-          <td style="padding:12px 10px;border-bottom:1px solid #e5e5e5;text-align:right;">${Number(l.cantidad).toFixed(2)}</td>
-          <td style="padding:12px 10px;border-bottom:1px solid #e5e5e5;text-align:right;">${formatCurrency(base)}</td>
-          <td style="padding:12px 10px;border-bottom:1px solid #e5e5e5;text-align:right;">${formatCurrency(ivaLinea)}</td>
-          <td style="padding:12px 10px;border-bottom:1px solid #e5e5e5;text-align:right;">${formatCurrency(totalLinea)}</td>
+          <td class="inv-col-desc" style="padding:8px 6px;border-bottom:1px solid #e5e5e5;vertical-align:top;">${htmlEsc(l.descripcion)}</td>
+          <td class="inv-col-num" style="padding:8px 6px;border-bottom:1px solid #e5e5e5;text-align:right;white-space:nowrap;">${Number(l.cantidad).toFixed(2)}</td>
+          <td class="inv-col-num" style="padding:8px 6px;border-bottom:1px solid #e5e5e5;text-align:right;white-space:nowrap;">${formatCurrency(base)}</td>
+          <td class="inv-col-num" style="padding:8px 6px;border-bottom:1px solid #e5e5e5;text-align:right;white-space:nowrap;">${formatCurrency(ivaLinea)}</td>
+          <td class="inv-col-num" style="padding:8px 6px;border-bottom:1px solid #e5e5e5;text-align:right;white-space:nowrap;">${formatCurrency(totalLinea)}</td>
         </tr>
       `;
       })
@@ -307,77 +307,106 @@ export default function DetalleFacturaPage() {
       : "";
 
     const facturaBodyInner = `
-          <div style="max-width:100%; padding:0 4px;">
-            <table style="width:100%; margin-bottom:24px; border-collapse:collapse;">
+          <div class="invoice-root">
+            <table class="invoice-header-table" style="width:100%;border-collapse:collapse;margin-bottom:14px;table-layout:fixed;">
               <tr>
-                <td style="vertical-align:top; width:50%;">
-                  <img data-invoice-logo src=${JSON.stringify(logoUrl)} alt="" style="height:48px; width:auto; max-width:220px; object-fit:contain;" />
+                <td style="vertical-align:top;width:52%;padding-right:10px;">
+                  <img data-invoice-logo src=${JSON.stringify(logoUrl)} alt="" style="height:44px;width:auto;max-width:200px;object-fit:contain;display:block;" />
                 </td>
-                <td style="vertical-align:top; width:50%; text-align:right;">
-                  <p style="margin:0; font-size:14px; font-weight:600;">${esRectificativa ? "FACTURA RECTIFICATIVA Nº" : "FACTURA Nº"}: ${htmlEsc(factura.numero)}</p>
-                  <p style="margin:4px 0 0 0; font-size:13px; color:#444;">${htmlEsc(fechaFormateada)}</p>
+                <td style="vertical-align:top;width:48%;text-align:right;padding-left:8px;">
+                  <p style="margin:0;font-size:13px;font-weight:700;line-height:1.35;word-break:break-word;">${esRectificativa ? "FACTURA RECTIFICATIVA" : "FACTURA"}<br/><span style="font-size:12px;font-weight:600;">N.º ${htmlEsc(factura.numero)}</span></p>
+                  <p style="margin:6px 0 0 0;font-size:11px;color:#444;">${htmlEsc(fechaFormateada)}</p>
                 </td>
               </tr>
             </table>
 
             ${esRectificativa && (facturaOriginal || factura.causa_rectificacion) ? `
-            <div style="margin-bottom:24px; padding:12px 16px; background:#fef3c7; border:1px solid #fcd34d; border-radius:8px;">
-              <p style="margin:0 0 6px 0; font-size:12px; font-weight:700; color:#92400e;">DOCUMENTO RECTIFICATIVO</p>
-              ${facturaOriginal ? `<p style="margin:0; font-size:12px; color:#78350f;">Rectifica la factura nº ${htmlEsc(facturaOriginal.numero)}${fechaOriginalFormateada ? `, de fecha ${htmlEsc(fechaOriginalFormateada)}` : ""}.</p>` : ""}
-              ${factura.causa_rectificacion ? `<p style="margin:6px 0 0 0; font-size:12px; color:#78350f;"><strong>Causa:</strong> ${htmlEsc(factura.causa_rectificacion)}</p>` : ""}
+            <div class="invoice-rect" style="margin-bottom:16px;padding:10px 14px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;page-break-inside:avoid;">
+              <p style="margin:0 0 4px 0;font-size:10px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.04em;">Documento rectificativo</p>
+              ${facturaOriginal ? `<p style="margin:0;font-size:11px;color:#78350f;line-height:1.45;">Rectifica la factura n.º <strong>${htmlEsc(facturaOriginal.numero)}</strong>${fechaOriginalFormateada ? `, de fecha <strong>${htmlEsc(fechaOriginalFormateada)}</strong>` : ""}.</p>` : ""}
+              ${factura.causa_rectificacion ? `<p style="margin:8px 0 0 0;font-size:11px;color:#78350f;line-height:1.45;"><strong>Causa:</strong> ${htmlEsc(factura.causa_rectificacion)}</p>` : ""}
             </div>
             ` : ""}
 
-            <table style="width:100%; margin-bottom:24px; border-collapse:collapse;">
+            <table class="invoice-parties" style="width:100%;border-collapse:collapse;margin-bottom:18px;table-layout:fixed;">
               <tr>
-                <td style="vertical-align:top; width:50%; padding-right:20px;">
-                  <p style="margin:0 0 8px 0; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#333;">Datos empresa</p>
-                  <p style="margin:0; font-weight:600;">${htmlEsc(emisor.razon_social)}</p>
-                  <p style="margin:0; font-weight:600;">${htmlEsc(emisor.direccion)}</p>
-                  <p style="margin:0; font-weight:600;">${htmlEsc(emisor.codigo_postal)} ${htmlEsc(emisor.localidad)} (${htmlEsc(emisor.provincia)})</p>
-                  <p style="margin:0; font-weight:600;">${htmlEsc(emisor.nif)}</p>
-                  ${empresaEmailLine}
-                  ${empresaTelLine}
+                <td style="vertical-align:top;width:50%;padding:0 12px 0 0;border-right:1px solid #eee;">
+                  <p class="invoice-label" style="margin:0 0 6px 0;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#555;">Datos empresa</p>
+                  <div style="font-size:11px;line-height:1.5;word-break:break-word;">
+                    <p style="margin:0;font-weight:600;">${htmlEsc(emisor.razon_social)}</p>
+                    <p style="margin:2px 0 0 0;font-weight:600;">${htmlEsc(emisor.direccion)}</p>
+                    <p style="margin:2px 0 0 0;font-weight:600;">${htmlEsc(emisor.codigo_postal)} ${htmlEsc(emisor.localidad)} (${htmlEsc(emisor.provincia)})</p>
+                    <p style="margin:2px 0 0 0;font-weight:600;">${htmlEsc(emisor.nif)}</p>
+                    ${empresaEmailLine.replace("margin:4px", "margin:2px")}
+                    ${empresaTelLine.replace("margin:4px", "margin:2px")}
+                  </div>
                 </td>
-                <td style="vertical-align:top; width:50%; text-align:right;">
-                  <p style="margin:0 0 8px 0; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#333;">Datos cliente</p>
-                  <p style="margin:0; font-weight:600;">${clienteNombre}</p>
-                  <p style="margin:0; font-weight:600;">${clienteDireccion}</p>
-                  <p style="margin:0; font-weight:600;">${docLabel}: ${clienteDoc}</p>
-                  <p style="margin:0; font-weight:600;">${clienteEmail}</p>
-                  ${clienteTelefono ? `<p style="margin:0; font-weight:600;">${clienteTelefono}</p>` : ""}
+                <td style="vertical-align:top;width:50%;padding:0 0 0 12px;text-align:right;">
+                  <p class="invoice-label" style="margin:0 0 6px 0;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#555;">Datos cliente</p>
+                  <div style="font-size:11px;line-height:1.5;word-break:break-word;text-align:right;">
+                    <p style="margin:0;font-weight:600;">${clienteNombre}</p>
+                    <p style="margin:2px 0 0 0;font-weight:600;">${clienteDireccion}</p>
+                    <p style="margin:2px 0 0 0;font-weight:600;">${docLabel}: ${clienteDoc}</p>
+                    <p style="margin:2px 0 0 0;font-weight:600;">${clienteEmail}</p>
+                    ${clienteTelefono ? `<p style="margin:2px 0 0 0;font-weight:600;">${clienteTelefono}</p>` : ""}
+                  </div>
                 </td>
               </tr>
             </table>
 
-            <table style="width:100%; border-collapse:collapse; margin-bottom:20px;">
+            <table class="invoice-lines" style="width:100%;border-collapse:collapse;margin-bottom:14px;table-layout:fixed;font-size:10px;">
+              <colgroup>
+                <col style="width:36%" />
+                <col style="width:13%" />
+                <col style="width:17%" />
+                <col style="width:17%" />
+                <col style="width:17%" />
+              </colgroup>
               <thead>
                 <tr>
-                  <th style="padding:10px 8px; border-bottom:1px solid #ccc; text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:#444;">Descripción / Producto</th>
-                  <th style="padding:10px 8px; border-bottom:1px solid #ccc; text-align:right; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:#444;">Cantidad</th>
-                  <th style="padding:10px 8px; border-bottom:1px solid #ccc; text-align:right; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:#444;">Base</th>
-                  <th style="padding:10px 8px; border-bottom:1px solid #ccc; text-align:right; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:#444;">IVA</th>
-                  <th style="padding:10px 8px; border-bottom:1px solid #ccc; text-align:right; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:#444;">Total</th>
+                  <th style="padding:8px 6px;border-bottom:2px solid #bbb;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:#333;background:#f6f6f6;">Concepto</th>
+                  <th style="padding:8px 6px;border-bottom:2px solid #bbb;text-align:right;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:#333;background:#f6f6f6;">Cant.</th>
+                  <th style="padding:8px 6px;border-bottom:2px solid #bbb;text-align:right;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:#333;background:#f6f6f6;">Base</th>
+                  <th style="padding:8px 6px;border-bottom:2px solid #bbb;text-align:right;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:#333;background:#f6f6f6;">IVA</th>
+                  <th style="padding:8px 6px;border-bottom:2px solid #bbb;text-align:right;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:#333;background:#f6f6f6;">Total</th>
                 </tr>
               </thead>
               <tbody>${lineasHtml}</tbody>
             </table>
 
-            <div style="margin-left:auto; width:260px; font-size:14px;">
-              <p style="display:flex; justify-content:space-between; margin:6px 0;"><span>Base Imponible</span><span>${formatCurrency(baseImponible)}</span></p>
-              <p style="display:flex; justify-content:space-between; margin:6px 0;"><span>IVA</span><span>${formatCurrency(ivaImporte)}</span></p>
-              ${porcentajeDescuento > 0 ? `<p style="display:flex; justify-content:space-between; margin:6px 0;"><span>Descuento (${porcentajeDescuento}%)</span><span>- ${formatCurrency(descuentoImporte)}</span></p>` : ""}
-              ${irpfPorcentaje > 0 ? `<p style="display:flex; justify-content:space-between; margin:6px 0;"><span>Retención (${irpfPorcentaje}%)</span><span>- ${formatCurrency(irpfImporte)}</span></p>` : ""}
-              <p style="display:flex; justify-content:space-between; margin:12px 0 0 0; padding-top:10px; border-top:1px solid #ccc; font-weight:700; font-size:16px;">
-                <span>Total</span><span>${formatCurrency(totalConIva)}</span>
-              </p>
+            <div class="invoice-totals-wrap" style="width:100%;page-break-inside:avoid;">
+              <table class="invoice-totals" style="width:100%;max-width:260px;margin-left:auto;border-collapse:collapse;font-size:11px;">
+                <tr>
+                  <td style="padding:5px 8px 5px 0;color:#444;">Base imponible</td>
+                  <td style="padding:5px 0;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">${formatCurrency(baseImponible)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:5px 8px 5px 0;color:#444;">IVA</td>
+                  <td style="padding:5px 0;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">${formatCurrency(ivaImporte)}</td>
+                </tr>
+                ${porcentajeDescuento > 0 ? `<tr>
+                  <td style="padding:5px 8px 5px 0;color:#444;">Descuento (${porcentajeDescuento}%)</td>
+                  <td style="padding:5px 0;text-align:right;font-variant-numeric:tabular-nums;">− ${formatCurrency(descuentoImporte)}</td>
+                </tr>` : ""}
+                ${irpfPorcentaje > 0 ? `<tr>
+                  <td style="padding:5px 8px 5px 0;color:#444;">Retención (${irpfPorcentaje}%)</td>
+                  <td style="padding:5px 0;text-align:right;font-variant-numeric:tabular-nums;">− ${formatCurrency(irpfImporte)}</td>
+                </tr>` : ""}
+                <tr>
+                  <td colspan="2" style="padding:0;height:8px;"></td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 8px 0 0;border-top:2px solid #333;font-size:13px;font-weight:800;">Total</td>
+                  <td style="padding:10px 0 0 0;border-top:2px solid #333;text-align:right;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;">${formatCurrency(totalConIva)}</td>
+                </tr>
+              </table>
             </div>
 
-            <div style="margin-top:48px; padding-top:20px; border-top:1px solid #ddd;">
-              <p style="margin:0; font-size:12px; color:#444; font-weight:500;">
+            <div class="invoice-footer" style="margin-top:22px;padding-top:14px;border-top:1px solid #ddd;page-break-inside:avoid;">
+              <p style="margin:0;font-size:10px;color:#333;line-height:1.5;">
                 El pago se realizará mediante <strong>transferencia bancaria</strong>. ${pagoBancoLines}
               </p>
-              <p style="margin:10px 0 0 0; font-size:11px; color:#666;">
+              <p style="margin:8px 0 0 0;font-size:9px;color:#666;line-height:1.45;">
                 Documento emitido conforme al Reglamento por el que se regulan las obligaciones de facturación (Real Decreto 1619/2012).
               </p>
             </div>
@@ -390,8 +419,23 @@ export default function DetalleFacturaPage() {
     <meta charset="utf-8" />
     <title>${htmlEsc(factura.numero)}</title>
     <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color:#222; font-size:14px; line-height:1.5; margin:0; padding:8px; max-width:100%; box-sizing:border-box; }
-      img[data-invoice-logo] { height:48px; width:auto; max-width:220px; object-fit:contain; }
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: #fff; overflow: visible; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+        color: #1a1a1a;
+        font-size: 12px;
+        line-height: 1.45;
+        padding: 12px 14px 28px;
+        max-width: 190mm;
+        margin: 0 auto;
+      }
+      img[data-invoice-logo] { height: 44px; width: auto; max-width: 200px; object-fit: contain; display: block; }
+      .invoice-root { width: 100%; min-height: 0; overflow: visible; }
+      .invoice-lines thead { display: table-header-group; }
+      .invoice-lines tbody tr { page-break-inside: avoid; break-inside: avoid; }
+      .inv-col-desc { word-break: break-word; overflow-wrap: anywhere; hyphens: auto; }
+      @page { size: A4 portrait; margin: 10mm; }
     </style>
   </head>
   <body>
@@ -407,11 +451,13 @@ export default function DetalleFacturaPage() {
       left: "0",
       top: "0",
       width: "794px",
-      minHeight: "1123px",
+      minHeight: "400px",
+      height: "auto",
       opacity: "0",
       pointerEvents: "none",
       zIndex: "-1",
       border: "0",
+      overflow: "hidden",
     });
     document.body.appendChild(iframe);
     const idoc = iframe.contentDocument;
@@ -431,21 +477,37 @@ export default function DetalleFacturaPage() {
 
     const generateFile = () => {
       const body = idoc.body;
+      const docEl = idoc.documentElement;
+      const scrollH = Math.max(
+        body.scrollHeight,
+        body.offsetHeight,
+        docEl.scrollHeight,
+        docEl.clientHeight,
+        1123
+      );
+      iframe.style.height = `${scrollH + 96}px`;
+      iframe.style.minHeight = `${scrollH + 96}px`;
+
       void import("html2pdf.js")
         .then((mod) => {
           const html2pdf = mod.default;
           return html2pdf()
             .set({
-              margin: [8, 8, 8, 8],
+              margin: [10, 10, 10, 10],
               filename: safeFilename,
-              image: { type: "jpeg", quality: 0.92 },
+              image: { type: "jpeg", quality: 0.94 },
+              pagebreak: { mode: ["css", "legacy"] },
               html2canvas: {
-                scale: isCoarseMobile ? 1.35 : 2,
+                scale: isCoarseMobile ? 1.35 : 1.85,
                 useCORS: true,
                 logging: false,
                 letterRendering: true,
+                scrollX: 0,
+                scrollY: 0,
+                windowWidth: 794,
+                windowHeight: Math.min(scrollH + 120, 16_000),
               },
-              jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+              jsPDF: { unit: "mm", format: "a4", orientation: "portrait", compress: true },
             })
             .from(body)
             .outputPdf("blob")
