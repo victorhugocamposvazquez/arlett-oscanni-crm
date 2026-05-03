@@ -51,6 +51,8 @@ export function FacturaWizard({ facturaId, initialClienteId, facturaOriginalId }
   const [clientes, setClientes] = useState<Array<{ id: string; nombre: string }>>([]);
   const [loading, setLoading] = useState(!!facturaId || !!facturaOriginalId);
   const [numero, setNumero] = useState<string | null>(null);
+  /** En edición, número editable (debe coincidir con unicidad user_id+numero). */
+  const [numeroDraft, setNumeroDraft] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [irpfPorcentaje, setIrpfPorcentaje] = useState<number>(0);
@@ -175,6 +177,7 @@ export function FacturaWizard({ facturaId, initialClienteId, facturaOriginalId }
         return;
       }
       setNumero(factura.numero);
+      setNumeroDraft(factura.numero);
       const step1Values = {
         clienteId: factura.cliente_id ?? "",
         concepto: factura.concepto ?? "",
@@ -319,21 +322,33 @@ export function FacturaWizard({ facturaId, initialClienteId, facturaOriginalId }
     }));
 
     if (facturaId) {
+      const s1 = formStep1.getValues();
+      const numeroTrim = numeroDraft.trim();
+      if (!numeroTrim) {
+        setCreateError("El número de factura no puede estar vacío");
+        setCreating(false);
+        return;
+      }
       const { error: errFactura } = await supabase
         .from("facturas")
         .update({
-          cliente_id: clienteId,
+          cliente_id: s1.clienteId || null,
           estado: estadoInicial,
-          concepto: data.concepto || null,
-          fecha_emision: data.fechaEmision || null,
-          fecha_vencimiento: data.fechaVencimiento || null,
+          concepto: s1.concepto || null,
+          fecha_emision: s1.fechaEmision || null,
+          fecha_vencimiento: s1.fechaVencimiento || null,
           irpf_porcentaje: irpfPorcentaje,
           porcentaje_descuento: porcentajeDescuento,
+          numero: numeroTrim,
         })
         .eq("id", facturaId);
 
       if (errFactura) {
-        setCreateError(errFactura.message);
+        setCreateError(
+          errFactura.code === "23505" || errFactura.message.includes("unique")
+            ? "Ya existe una factura con ese número para tu cuenta."
+            : errFactura.message
+        );
         setCreating(false);
         return;
       }
@@ -475,8 +490,21 @@ export function FacturaWizard({ facturaId, initialClienteId, facturaOriginalId }
           <Card>
             <CardHeader>
               <CardTitle>{esRectificativa ? "Rectificativa" : "Cliente y fechas"}</CardTitle>
-              {numero && (
-                <p className="text-sm font-medium text-neutral-500">{numero}</p>
+              {facturaId ? (
+                <div className="space-y-2 pt-1">
+                  <Label htmlFor="factura-numero-edit">Número de factura</Label>
+                  <Input
+                    id="factura-numero-edit"
+                    value={numeroDraft}
+                    onChange={(e) => setNumeroDraft(e.target.value)}
+                    className="max-w-md font-mono text-sm"
+                    autoComplete="off"
+                  />
+                </div>
+              ) : (
+                numero && (
+                  <p className="text-sm font-medium text-neutral-500">{numero}</p>
+                )
               )}
               {esRectificativa && facturaOriginalNumero && (
                 <p className="text-sm text-neutral-600">
