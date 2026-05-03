@@ -429,8 +429,10 @@ export default function DetalleFacturaPage() {
         width: 100%;
         max-width: none;
         margin: 0;
-        padding: 8px 10px 22px;
+        padding: 8px 10px 12px;
+        min-height: 0;
       }
+      html { min-height: 0; }
       img[data-invoice-logo] { height: 48px; width: auto; max-width: min(280px, 100%); object-fit: contain; display: block; }
       .invoice-root { width: 100%; min-height: 0; overflow: visible; }
       .invoice-lines thead { display: table-header-group; }
@@ -479,15 +481,12 @@ export default function DetalleFacturaPage() {
     const generateFile = () => {
       const body = idoc.body;
       const docEl = idoc.documentElement;
-      const scrollH = Math.max(
-        body.scrollHeight,
-        body.offsetHeight,
-        docEl.scrollHeight,
-        docEl.clientHeight,
-        1123
+      /** Altura del contenido sin piso artificial (evita segunda hoja en blanco). */
+      const scrollH = Math.ceil(
+        Math.max(body.scrollHeight, body.offsetHeight, docEl.scrollHeight, 1)
       );
-      iframe.style.height = `${scrollH + 96}px`;
-      iframe.style.minHeight = `${scrollH + 96}px`;
+      iframe.style.height = `${scrollH + 8}px`;
+      iframe.style.minHeight = `${scrollH + 8}px`;
 
       void import("html2pdf.js")
         .then((mod) => {
@@ -505,7 +504,7 @@ export default function DetalleFacturaPage() {
                 scrollX: 0,
                 scrollY: 0,
                 windowWidth: 794,
-                windowHeight: Math.min(scrollH + 120, 16_000),
+                windowHeight: Math.min(scrollH + 32, 16_000),
               },
               jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
             })
