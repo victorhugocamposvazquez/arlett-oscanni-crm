@@ -221,6 +221,11 @@ export default function DetalleFacturaPage() {
     const supabase = createClient();
     const emisor = await fetchEmisorFacturacion(supabase);
 
+    const isCoarseMobile =
+      typeof navigator !== "undefined" &&
+      (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+        (navigator.maxTouchPoints > 0 && typeof window !== "undefined" && window.matchMedia("(max-width: 1024px)").matches));
+
     const clienteNombre = htmlEsc(factura.clientes?.nombre ?? "Cliente");
     const clienteDoc = htmlEsc(factura.clientes?.documento_fiscal ?? "-");
     const docLabel = htmlEsc(
@@ -290,6 +295,7 @@ export default function DetalleFacturaPage() {
     })();
 
     if (pagoBancoLines === null) {
+      setPrintingPdf(false);
       return;
     }
 
@@ -412,6 +418,7 @@ export default function DetalleFacturaPage() {
     if (!idoc) {
       document.body.removeChild(iframe);
       toast.error("No se pudo generar el PDF. Inténtalo de nuevo.");
+      setPrintingPdf(false);
       return;
     }
     idoc.open();
@@ -432,12 +439,66 @@ export default function DetalleFacturaPage() {
               margin: [8, 8, 8, 8],
               filename: safeFilename,
               image: { type: "jpeg", quality: 0.92 },
-              html2canvas: { scale: 2, useCORS: true, logging: false, letterRendering: true },
+              html2canvas: {
+                scale: isCoarseMobile ? 1.35 : 2,
+                useCORS: true,
+                logging: false,
+                letterRendering: true,
+              },
               jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
             })
             .from(body)
-            .save()
-            .then(() => {
+            .outputPdf("blob")
+            .then(async (blob: Blob) => {
+              if (isCoarseMobile) {
+                const file = new File([blob], safeFilename, { type: "application/pdf" });
+                try {
+                  const canShare =
+                    typeof navigator !== "undefined" &&
+                    typeof navigator.share === "function" &&
+                    typeof navigator.canShare === "function" &&
+                    navigator.canShare({ files: [file] });
+                  if (canShare) {
+                    await navigator.share({
+                      files: [file],
+                      title: `Factura ${factura.numero}`,
+                    });
+                    toast.success("Elige «Guardar en Archivos» o la app deseada.");
+                    return;
+                  }
+                } catch (shareErr: unknown) {
+                  const name = shareErr instanceof Error ? shareErr.name : "";
+                  if (name === "AbortError") return;
+                }
+
+                const url = URL.createObjectURL(blob);
+                const w = window.open(url, "_blank", "noopener,noreferrer");
+                if (w) {
+                  toast.success("Se abrió el PDF: usa Compartir o Guardar desde el visor.");
+                } else {
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = safeFilename;
+                  a.target = "_blank";
+                  a.rel = "noopener";
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  toast.info("Si no ves el PDF, permite ventanas emergentes o revisa la carpeta de descargas.");
+                }
+                globalThis.window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+                return;
+              }
+
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = safeFilename;
+              a.rel = "noopener";
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
               toast.success("PDF descargado");
             });
         })
@@ -446,6 +507,7 @@ export default function DetalleFacturaPage() {
           toast.error(msg);
         })
         .finally(() => {
+          setPrintingPdf(false);
           if (iframe.parentNode) {
             document.body.removeChild(iframe);
           }
@@ -463,7 +525,9 @@ export default function DetalleFacturaPage() {
     } else {
       setTimeout(generateFile, 100);
     }
-    } finally {
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Error al preparar el PDF";
+      toast.error(msg);
       setPrintingPdf(false);
     }
   };
