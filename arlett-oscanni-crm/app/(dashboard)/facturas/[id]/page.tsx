@@ -310,8 +310,8 @@ export default function DetalleFacturaPage() {
           <div class="invoice-root">
             <table class="invoice-header-table" style="width:100%;border-collapse:collapse;margin-bottom:14px;table-layout:fixed;">
               <tr>
-                <td style="vertical-align:top;width:52%;padding-right:10px;">
-                  <img data-invoice-logo src=${JSON.stringify(logoUrl)} alt="" style="height:44px;width:auto;max-width:200px;object-fit:contain;display:block;" />
+                <td style="vertical-align:top;width:52%;padding-right:12px;">
+                  <img data-invoice-logo src=${JSON.stringify(logoUrl)} alt="" style="height:48px;width:auto;max-width:280px;object-fit:contain;display:block;" />
                 </td>
                 <td style="vertical-align:top;width:48%;text-align:right;padding-left:8px;">
                   <p style="margin:0;font-size:13px;font-weight:700;line-height:1.35;word-break:break-word;">${esRectificativa ? "FACTURA RECTIFICATIVA" : "FACTURA"}<br/><span style="font-size:12px;font-weight:600;">N.º ${htmlEsc(factura.numero)}</span></p>
@@ -330,7 +330,7 @@ export default function DetalleFacturaPage() {
 
             <table class="invoice-parties" style="width:100%;border-collapse:collapse;margin-bottom:18px;table-layout:fixed;">
               <tr>
-                <td style="vertical-align:top;width:50%;padding:0 12px 0 0;border-right:1px solid #eee;">
+                <td style="vertical-align:top;width:50%;padding:0 10px 0 0;border-right:1px solid #eee;">
                   <p class="invoice-label" style="margin:0 0 6px 0;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#555;">Datos empresa</p>
                   <div style="font-size:11px;line-height:1.5;word-break:break-word;">
                     <p style="margin:0;font-weight:600;">${htmlEsc(emisor.razon_social)}</p>
@@ -341,7 +341,7 @@ export default function DetalleFacturaPage() {
                     ${empresaTelLine.replace("margin:4px", "margin:2px")}
                   </div>
                 </td>
-                <td style="vertical-align:top;width:50%;padding:0 0 0 12px;text-align:right;">
+                <td style="vertical-align:top;width:50%;padding:0 0 0 10px;text-align:right;">
                   <p class="invoice-label" style="margin:0 0 6px 0;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#555;">Datos cliente</p>
                   <div style="font-size:11px;line-height:1.5;word-break:break-word;text-align:right;">
                     <p style="margin:0;font-weight:600;">${clienteNombre}</p>
@@ -356,11 +356,11 @@ export default function DetalleFacturaPage() {
 
             <table class="invoice-lines" style="width:100%;border-collapse:collapse;margin-bottom:14px;table-layout:fixed;font-size:10px;">
               <colgroup>
-                <col style="width:36%" />
-                <col style="width:13%" />
-                <col style="width:17%" />
-                <col style="width:17%" />
-                <col style="width:17%" />
+                <col style="width:42%" />
+                <col style="width:12%" />
+                <col style="width:15.33%" />
+                <col style="width:15.33%" />
+                <col style="width:15.34%" />
               </colgroup>
               <thead>
                 <tr>
@@ -375,7 +375,7 @@ export default function DetalleFacturaPage() {
             </table>
 
             <div class="invoice-totals-wrap" style="width:100%;page-break-inside:avoid;">
-              <table class="invoice-totals" style="width:100%;max-width:260px;margin-left:auto;border-collapse:collapse;font-size:11px;">
+              <table class="invoice-totals" style="width:100%;max-width:320px;margin-left:auto;border-collapse:collapse;font-size:11px;">
                 <tr>
                   <td style="padding:5px 8px 5px 0;color:#444;">Base imponible</td>
                   <td style="padding:5px 0;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">${formatCurrency(baseImponible)}</td>
@@ -426,11 +426,12 @@ export default function DetalleFacturaPage() {
         color: #1a1a1a;
         font-size: 12px;
         line-height: 1.45;
-        padding: 12px 14px 28px;
-        max-width: 190mm;
-        margin: 0 auto;
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        padding: 8px 10px 22px;
       }
-      img[data-invoice-logo] { height: 44px; width: auto; max-width: 200px; object-fit: contain; display: block; }
+      img[data-invoice-logo] { height: 48px; width: auto; max-width: min(280px, 100%); object-fit: contain; display: block; }
       .invoice-root { width: 100%; min-height: 0; overflow: visible; }
       .invoice-lines thead { display: table-header-group; }
       .invoice-lines tbody tr { page-break-inside: avoid; break-inside: avoid; }
@@ -493,7 +494,7 @@ export default function DetalleFacturaPage() {
           const html2pdf = mod.default;
           return html2pdf()
             .set({
-              margin: [10, 10, 10, 10],
+              margin: [8, 8, 8, 8],
               filename: safeFilename,
               image: { type: "jpeg", quality: 0.94 },
               pagebreak: { mode: ["css", "legacy"] },
@@ -507,7 +508,7 @@ export default function DetalleFacturaPage() {
                 windowWidth: 794,
                 windowHeight: Math.min(scrollH + 120, 16_000),
               },
-              jsPDF: { unit: "mm", format: "a4", orientation: "portrait", compress: true },
+              jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
             })
             .from(body)
             .outputPdf("blob")
