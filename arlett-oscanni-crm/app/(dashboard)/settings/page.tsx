@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/auth-context";
 import { createUser } from "@/lib/actions/usuarios";
-import { UserPlus, Building2 } from "lucide-react";
+import { UserPlus, Building2, MessageSquare } from "lucide-react";
 
 export default function SettingsPage() {
   const { user, signOut } = useAuth();
@@ -121,6 +121,25 @@ export default function SettingsPage() {
               </p>
               <Button className="mt-4" variant="secondary" asChild>
                 <Link href="/settings/empresa">Editar datos de empresa</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {user?.role === "admin" && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5" strokeWidth={1.5} />
+                SMS / SimplyBook
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-neutral-600">
+                Recordatorios automáticos de cita (SimplyBook → Esendex), plantillas e historial de envíos.
+              </p>
+              <Button className="mt-4" variant="secondary" asChild>
+                <Link href="/settings/sms">Abrir backoffice SMS</Link>
               </Button>
             </CardContent>
           </Card>

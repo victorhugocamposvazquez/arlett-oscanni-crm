@@ -13,6 +13,7 @@ import {
   KeyRound,
   Settings,
   Building2,
+  MessageSquare,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
@@ -227,6 +228,17 @@ export function TopBar() {
             >
               <Building2 className="h-5 w-5 shrink-0 text-neutral-500" strokeWidth={1.5} />
               <span>Datos de empresa (facturación)</span>
+            </Link>
+          )}
+
+          {user?.role === "admin" && (
+            <Link
+              href="/settings/sms"
+              onClick={() => setSheetOpen(false)}
+              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium text-foreground transition-colors hover:bg-neutral-50"
+            >
+              <MessageSquare className="h-5 w-5 shrink-0 text-neutral-500" strokeWidth={1.5} />
+              <span>SMS / SimplyBook</span>
             </Link>
           )}
 

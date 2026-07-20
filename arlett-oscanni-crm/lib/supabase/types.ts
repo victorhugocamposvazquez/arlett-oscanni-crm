@@ -266,6 +266,161 @@ export interface Database {
           logo_url?: string | null;
         };
       };
+      sms_config: {
+        Row: {
+          id: number;
+          enabled: boolean;
+          reminder_mode: string;
+          reminder_hours_before: number;
+          reminder_send_hour: number;
+          timezone: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: number;
+          enabled?: boolean;
+          reminder_mode?: string;
+          reminder_hours_before?: number;
+          reminder_send_hour?: number;
+          timezone?: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          enabled?: boolean;
+          reminder_mode?: string;
+          reminder_hours_before?: number;
+          reminder_send_hour?: number;
+          timezone?: string;
+          updated_at?: string | null;
+        };
+      };
+      sms_plantillas: {
+        Row: {
+          id: string;
+          clave: string;
+          nombre: string;
+          cuerpo: string;
+          activa: boolean;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          clave: string;
+          nombre: string;
+          cuerpo: string;
+          activa?: boolean;
+          updated_at?: string | null;
+        };
+        Update: {
+          clave?: string;
+          nombre?: string;
+          cuerpo?: string;
+          activa?: boolean;
+          updated_at?: string | null;
+        };
+      };
+      citas_simplybook: {
+        Row: {
+          id: string;
+          simplybook_id: string;
+          cliente_nombre: string | null;
+          cliente_telefono: string | null;
+          cliente_email: string | null;
+          servicio_nombre: string | null;
+          profesional_nombre: string | null;
+          starts_at: string;
+          ends_at: string | null;
+          estado: string;
+          reminder_due_at: string | null;
+          reminder_sent_at: string | null;
+          reminder_skipped_reason: string | null;
+          raw_payload: Record<string, unknown> | null;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          simplybook_id: string;
+          cliente_nombre?: string | null;
+          cliente_telefono?: string | null;
+          cliente_email?: string | null;
+          servicio_nombre?: string | null;
+          profesional_nombre?: string | null;
+          starts_at: string;
+          ends_at?: string | null;
+          estado?: string;
+          reminder_due_at?: string | null;
+          reminder_sent_at?: string | null;
+          reminder_skipped_reason?: string | null;
+          raw_payload?: Record<string, unknown> | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          simplybook_id?: string;
+          cliente_nombre?: string | null;
+          cliente_telefono?: string | null;
+          cliente_email?: string | null;
+          servicio_nombre?: string | null;
+          profesional_nombre?: string | null;
+          starts_at?: string;
+          ends_at?: string | null;
+          estado?: string;
+          reminder_due_at?: string | null;
+          reminder_sent_at?: string | null;
+          reminder_skipped_reason?: string | null;
+          raw_payload?: Record<string, unknown> | null;
+          updated_at?: string | null;
+        };
+      };
+      sms_envios: {
+        Row: {
+          id: string;
+          cita_id: string | null;
+          telefono: string;
+          cuerpo: string;
+          estado: string;
+          proveedor: string;
+          esendex_message_id: string | null;
+          esendex_batch_id: string | null;
+          error_mensaje: string | null;
+          plantilla_clave: string | null;
+          enviado_at: string | null;
+          entregado_at: string | null;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          cita_id?: string | null;
+          telefono: string;
+          cuerpo: string;
+          estado?: string;
+          proveedor?: string;
+          esendex_message_id?: string | null;
+          esendex_batch_id?: string | null;
+          error_mensaje?: string | null;
+          plantilla_clave?: string | null;
+          enviado_at?: string | null;
+          entregado_at?: string | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          cita_id?: string | null;
+          telefono?: string;
+          cuerpo?: string;
+          estado?: string;
+          proveedor?: string;
+          esendex_message_id?: string | null;
+          esendex_batch_id?: string | null;
+          error_mensaje?: string | null;
+          plantilla_clave?: string | null;
+          enviado_at?: string | null;
+          entregado_at?: string | null;
+          updated_at?: string | null;
+        };
+      };
     };
   };
 }

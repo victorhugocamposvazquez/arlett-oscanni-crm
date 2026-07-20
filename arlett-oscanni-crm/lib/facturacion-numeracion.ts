@@ -2,9 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 
 /**
- * Numeración de factura ordinaria: N-oc-AAAA (ej. 1-oc-2026)
- * Rectificativas: FR-N-oc-AAAA (ej. FR-1-oc-2026)
- * Se reconoce el formato antiguo N/AAAA y FR-N/AAAA solo para calcular el correlativo máximo.
+ * Numeración de factura ordinaria: N-OC-AAAA (ej. 1-OC-2026)
+ * Rectificativas: FR-N-OC-AAAA (ej. FR-1-OC-2026)
+ * También se reconocen variantes con "-oc-" en minúsculas y el formato antiguo N/AAAA, FR-N/AAAA.
  */
 
 export function anioEmisionFecha(fechaEmision: string | null | undefined): number {
@@ -14,9 +14,11 @@ export function anioEmisionFecha(fechaEmision: string | null | undefined): numbe
   return new Date().getFullYear();
 }
 
-const reOrdinaria = (year: number) => new RegExp(`^(\\d+)-oc-${year}$`);
+const reOrdinaria = (year: number) => new RegExp(`^(\\d+)-OC-${year}$`);
+const reOrdinariaOcLower = (year: number) => new RegExp(`^(\\d+)-oc-${year}$`);
 const reOrdinariaLegacy = (year: number) => new RegExp(`^(\\d+)/${year}$`);
-const reRectificativa = (year: number) => new RegExp(`^FR-(\\d+)-oc-${year}$`);
+const reRectificativa = (year: number) => new RegExp(`^FR-(\\d+)-OC-${year}$`);
+const reRectificativaOcLower = (year: number) => new RegExp(`^FR-(\\d+)-oc-${year}$`);
 const reRectificativaLegacy = (year: number) => new RegExp(`^FR-(\\d+)/${year}$`);
 
 function maxFromMatches(numeros: string[], re: RegExp): number {
@@ -35,11 +37,13 @@ function maxCorrelativoEjercicio(numeros: string[], ordinaria: boolean, year: nu
   if (ordinaria) {
     return Math.max(
       maxFromMatches(numeros, reOrdinaria(year)),
+      maxFromMatches(numeros, reOrdinariaOcLower(year)),
       maxFromMatches(numeros, reOrdinariaLegacy(year))
     );
   }
   return Math.max(
     maxFromMatches(numeros, reRectificativa(year)),
+    maxFromMatches(numeros, reRectificativaOcLower(year)),
     maxFromMatches(numeros, reRectificativaLegacy(year))
   );
 }
@@ -65,7 +69,7 @@ export async function siguienteNumeroFactura(
     if (error) throw new Error(error.message);
     const numeros = (data ?? []).map((r) => (r as { numero: string }).numero);
     const next = maxCorrelativoEjercicio(numeros, false, year) + 1;
-    return `FR-${next}-oc-${y}`;
+    return `FR-${next}-OC-${y}`;
   }
 
   const { data, error } = await supabase
@@ -76,5 +80,5 @@ export async function siguienteNumeroFactura(
   if (error) throw new Error(error.message);
   const numeros = (data ?? []).map((r) => (r as { numero: string }).numero);
   const next = maxCorrelativoEjercicio(numeros, true, year) + 1;
-  return `${next}-oc-${y}`;
+  return `${next}-OC-${y}`;
 }
