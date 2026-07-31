@@ -29,6 +29,24 @@ export function generateSubid(): string {
   return `a${Date.now().toString(36)}${rand}`.slice(0, 20);
 }
 
+// Alfabeto GSM 03.38, el único válido en un SMS estándar. No incluye "á", "í",
+// "ó" ni "ú", inevitables aquí ("Depilación", "María"), así que esos mensajes
+// hay que marcarlos como Unicode o llegan con los caracteres sustituidos.
+const GSM_BASIC =
+  "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
+const GSM_EXTENDED = "^{}\\[~]|€\f";
+
+/** Longitud en caracteres GSM, o null si el texto necesita Unicode. */
+function gsmLength(text: string): number | null {
+  let length = 0;
+  for (const char of text) {
+    if (GSM_BASIC.includes(char)) length += 1;
+    else if (GSM_EXTENDED.includes(char)) length += 2;
+    else return null;
+  }
+  return length;
+}
+
 /**
  * Envía un SMS con la API http/POST de LabsMobile.
  * La API responde HTTP 200 incluso en error: hay que comprobar `code` ("0" = enviado).
@@ -51,6 +69,13 @@ export async function sendSmsLabsMobile(
     message: body,
     recipient: [{ msisdn: toE164 }],
   };
+  const gsmChars = gsmLength(body);
+  const needsUnicode = gsmChars === null;
+  // Unicode reduce la capacidad de 160 a 70 caracteres por SMS
+  const usedChars = gsmChars ?? [...body].length;
+  if (needsUnicode) payload.ucs2 = 1;
+  if (usedChars > (needsUnicode ? 70 : 160)) payload.long = 1;
+
   if (cfg.sender) payload.tpoa = cfg.sender;
   if (options.subid) payload.subid = options.subid;
   if (cfg.ackUrl) payload.ackurl = cfg.ackUrl;

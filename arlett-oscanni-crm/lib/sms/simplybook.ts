@@ -3,6 +3,8 @@
  * Docs: https://simplybook.me/en/api/developer-api
  */
 
+import { DEFAULT_TIMEZONE, zonedNaiveToDate } from "@/lib/sms/tz";
+
 type JsonRpcResponse<T> = {
   jsonrpc: string;
   id: number | string | null;
@@ -10,16 +12,26 @@ type JsonRpcResponse<T> = {
   error?: { code: number; message: string; data?: unknown };
 };
 
+/**
+ * Reserva devuelta por getBookings. La API entrega `client`, `event` y `unit`
+ * con los nombres, `is_confirm` como estado y las fechas en `start_date` /
+ * `end_date` ya con la hora incluida y en la zona horaria del negocio. Se
+ * mantienen los alias `*_name`, `*_datetime` y `is_confirmed` porque los usan
+ * otras versiones de la API y los payloads de webhook.
+ */
 export type SimplyBookBooking = {
   id: string | number;
   code?: string;
   client_id?: string | number;
+  client?: string | { name?: string; phone?: string };
   client_name?: string;
   client_phone?: string;
   client_email?: string;
   event_id?: string | number;
+  event?: string;
   event_name?: string;
   unit_id?: string | number;
+  unit?: string;
   unit_name?: string;
   start_date?: string;
   start_time?: string;
@@ -27,6 +39,7 @@ export type SimplyBookBooking = {
   end_time?: string;
   start_datetime?: string;
   end_datetime?: string;
+  is_confirm?: number | boolean | string;
   is_confirmed?: number | boolean | string;
   record_date?: string;
   [key: string]: unknown;
@@ -171,34 +184,70 @@ export async function fetchSimplyBookBookings(dateFrom: string, dateTo: string):
   return [];
 }
 
-export function bookingStartDateTime(b: SimplyBookBooking): Date | null {
-  if (b.start_datetime) {
-    const d = new Date(String(b.start_datetime).replace(" ", "T"));
-    if (!Number.isNaN(d.getTime())) return d;
-  }
-  if (b.start_date && b.start_time) {
-    const d = new Date(`${b.start_date}T${b.start_time}`);
-    if (!Number.isNaN(d.getTime())) return d;
+/** `start_date` puede venir como "2026-07-31 10:30:00" o partido en fecha + hora. */
+function parseBookingMoment(
+  datetime: string | undefined,
+  date: string | undefined,
+  time: string | undefined,
+  timeZone: string
+): Date | null {
+  const candidates = [datetime, date && time ? `${date.slice(0, 10)} ${time}` : undefined, date];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const d = zonedNaiveToDate(String(candidate), timeZone);
+    if (d) return d;
   }
   return null;
 }
 
-export function bookingEndDateTime(b: SimplyBookBooking): Date | null {
-  if (b.end_datetime) {
-    const d = new Date(String(b.end_datetime).replace(" ", "T"));
-    if (!Number.isNaN(d.getTime())) return d;
-  }
-  if (b.end_date && b.end_time) {
-    const d = new Date(`${b.end_date}T${b.end_time}`);
-    if (!Number.isNaN(d.getTime())) return d;
+export function bookingStartDateTime(
+  b: SimplyBookBooking,
+  timeZone: string = DEFAULT_TIMEZONE
+): Date | null {
+  return parseBookingMoment(b.start_datetime, b.start_date, b.start_time, timeZone);
+}
+
+export function bookingEndDateTime(
+  b: SimplyBookBooking,
+  timeZone: string = DEFAULT_TIMEZONE
+): Date | null {
+  return parseBookingMoment(b.end_datetime, b.end_date, b.end_time, timeZone);
+}
+
+function firstNonEmptyName(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (value && typeof value === "object") {
+      const name = (value as { name?: unknown }).name;
+      if (typeof name === "string" && name.trim()) return name.trim();
+    }
   }
   return null;
+}
+
+export function bookingClientName(b: SimplyBookBooking): string | null {
+  return firstNonEmptyName(b.client_name, b.client);
+}
+
+export function bookingServiceName(b: SimplyBookBooking): string | null {
+  return firstNonEmptyName(b.event_name, b.event);
+}
+
+export function bookingProviderName(b: SimplyBookBooking): string | null {
+  return firstNonEmptyName(b.unit_name, b.unit);
 }
 
 export function bookingPhone(b: SimplyBookBooking): string | null {
-  const candidates = [b.client_phone, b.phone, (b as { client?: { phone?: string } }).client?.phone];
+  const nested = typeof b.client === "object" ? b.client?.phone : undefined;
+  const candidates = [b.client_phone, b.phone, nested];
   for (const c of candidates) {
     if (typeof c === "string" && c.trim()) return c.trim();
   }
   return null;
+}
+
+/** `is_confirm` a 0 significa cita cancelada. */
+export function bookingIsCancelled(b: SimplyBookBooking): boolean {
+  const flag = b.is_confirmed ?? b.is_confirm;
+  return flag === 0 || flag === "0" || flag === false;
 }

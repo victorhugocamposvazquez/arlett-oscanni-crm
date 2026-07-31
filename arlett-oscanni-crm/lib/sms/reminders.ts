@@ -1,12 +1,17 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  bookingClientName,
   bookingEndDateTime,
+  bookingIsCancelled,
   bookingPhone,
+  bookingProviderName,
+  bookingServiceName,
   bookingStartDateTime,
   fetchSimplyBookBookings,
   isSimplyBookConfigured,
   type SimplyBookBooking,
 } from "@/lib/sms/simplybook";
+import { DEFAULT_TIMEZONE, zonedNaiveToDate } from "@/lib/sms/tz";
 import {
   generateSubid,
   isLabsMobileConfigured,
@@ -42,7 +47,7 @@ export function computeReminderDueAt(
   }
 
   // Día anterior a reminder_send_hour en la zona configurada
-  const tz = config.timezone || "Europe/Madrid";
+  const tz = config.timezone || DEFAULT_TIMEZONE;
   const ymdParts = new Intl.DateTimeFormat("en-CA", {
     timeZone: tz,
     year: "numeric",
@@ -59,34 +64,11 @@ export function computeReminderDueAt(
   const bd = String(civil.getUTCDate()).padStart(2, "0");
   const hh = String(config.reminder_send_hour).padStart(2, "0");
 
-  const asUtcGuess = new Date(`${by}-${bm}-${bd}T${hh}:00:00Z`);
-  const offsetMin = getTimeZoneOffsetMinutes(asUtcGuess, tz);
-  return new Date(asUtcGuess.getTime() - offsetMin * 60 * 1000);
-}
-
-function getTimeZoneOffsetMinutes(date: Date, timeZone: string): number {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    timeZoneName: "shortOffset",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = dtf.formatToParts(date);
-  const tzName = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
-  // GMT+2 / GMT-5 / UTC
-  const m = tzName.match(/GMT([+-])(\d+)(?::(\d+))?/i) || tzName.match(/UTC([+-])(\d+)/i);
-  if (!m) return 0;
-  const sign = m[1] === "-" ? -1 : 1;
-  const hours = Number(m[2] || 0);
-  const mins = Number(m[3] || 0);
-  return sign * (hours * 60 + mins);
+  return zonedNaiveToDate(`${by}-${bm}-${bd} ${hh}:00:00`, tz) ?? startsAt;
 }
 
 function mapBookingEstado(b: SimplyBookBooking): "activa" | "cancelada" {
-  const confirmed = b.is_confirmed;
-  if (confirmed === 0 || confirmed === "0" || confirmed === false) return "cancelada";
-  return "activa";
+  return bookingIsCancelled(b) ? "cancelada" : "activa";
 }
 
 export async function loadSmsConfig(): Promise<SmsConfigRow> {
@@ -122,10 +104,12 @@ export async function syncSimplyBookAppointments(daysAhead = 14): Promise<{ upse
   const bookings = await fetchSimplyBookBookings(from, to);
   let upserted = 0;
 
+  const tz = config.timezone || DEFAULT_TIMEZONE;
+
   for (const b of bookings) {
-    const startsAt = bookingStartDateTime(b);
+    const startsAt = bookingStartDateTime(b, tz);
     if (!startsAt) continue;
-    const endsAt = bookingEndDateTime(b);
+    const endsAt = bookingEndDateTime(b, tz);
     const simplybookId = String(b.id);
     const estado = mapBookingEstado(b);
     const reminderDueAt =
@@ -134,11 +118,11 @@ export async function syncSimplyBookAppointments(daysAhead = 14): Promise<{ upse
     const { error } = await supabase.from("citas_simplybook").upsert(
       {
         simplybook_id: simplybookId,
-        cliente_nombre: b.client_name ? String(b.client_name) : null,
+        cliente_nombre: bookingClientName(b),
         cliente_telefono: bookingPhone(b),
         cliente_email: b.client_email ? String(b.client_email) : null,
-        servicio_nombre: b.event_name ? String(b.event_name) : null,
-        profesional_nombre: b.unit_name ? String(b.unit_name) : null,
+        servicio_nombre: bookingServiceName(b),
+        profesional_nombre: bookingProviderName(b),
         starts_at: startsAt.toISOString(),
         ends_at: endsAt?.toISOString() ?? null,
         estado,
@@ -344,16 +328,22 @@ export async function upsertCitaFromWebhookPayload(payload: Record<string, unkno
 
   const pseudo: SimplyBookBooking = {
     id: simplybookId,
-    client_name: String(payload.client_name ?? payload.clientName ?? payload.name ?? "") || undefined,
+    client_name:
+      String(payload.client_name ?? payload.clientName ?? payload.client ?? payload.name ?? "") ||
+      undefined,
     client_phone: String(payload.client_phone ?? payload.clientPhone ?? payload.phone ?? "") || undefined,
     client_email: String(payload.client_email ?? payload.clientEmail ?? payload.email ?? "") || undefined,
-    event_name: String(payload.event_name ?? payload.service_name ?? payload.service ?? "") || undefined,
-    unit_name: String(payload.unit_name ?? payload.provider ?? payload.professional ?? "") || undefined,
+    event_name:
+      String(payload.event_name ?? payload.event ?? payload.service_name ?? payload.service ?? "") ||
+      undefined,
+    unit_name:
+      String(payload.unit_name ?? payload.unit ?? payload.provider ?? payload.professional ?? "") ||
+      undefined,
     start_datetime: String(payload.start_datetime ?? payload.start ?? "") || undefined,
     end_datetime: String(payload.end_datetime ?? payload.end ?? "") || undefined,
     start_date: String(payload.start_date ?? payload.date ?? "") || undefined,
     start_time: String(payload.start_time ?? payload.time ?? "") || undefined,
-    is_confirmed: payload.is_confirmed as number | boolean | undefined,
+    is_confirmed: (payload.is_confirmed ?? payload.is_confirm) as number | boolean | undefined,
   };
 
   const eventType = String(payload.notification_type ?? payload.event ?? payload.type ?? "").toLowerCase();
@@ -362,7 +352,8 @@ export async function upsertCitaFromWebhookPayload(payload: Record<string, unkno
     payload.cancelled === true ||
     mapBookingEstado(pseudo) === "cancelada";
 
-  const startsAt = bookingStartDateTime(pseudo);
+  const tz = config.timezone || DEFAULT_TIMEZONE;
+  const startsAt = bookingStartDateTime(pseudo, tz);
   if (!startsAt && !cancelled) {
     throw new Error("Webhook sin fecha/hora de inicio");
   }
@@ -374,13 +365,13 @@ export async function upsertCitaFromWebhookPayload(payload: Record<string, unkno
   await supabase.from("citas_simplybook").upsert(
     {
       simplybook_id: simplybookId,
-      cliente_nombre: pseudo.client_name ?? null,
+      cliente_nombre: bookingClientName(pseudo),
       cliente_telefono: bookingPhone(pseudo),
       cliente_email: pseudo.client_email ?? null,
-      servicio_nombre: pseudo.event_name ?? null,
-      profesional_nombre: pseudo.unit_name ?? null,
+      servicio_nombre: bookingServiceName(pseudo),
+      profesional_nombre: bookingProviderName(pseudo),
       starts_at: (startsAt ?? new Date()).toISOString(),
-      ends_at: bookingEndDateTime(pseudo)?.toISOString() ?? null,
+      ends_at: bookingEndDateTime(pseudo, tz)?.toISOString() ?? null,
       estado,
       reminder_due_at: reminderDueAt?.toISOString() ?? null,
       raw_payload: payload,
