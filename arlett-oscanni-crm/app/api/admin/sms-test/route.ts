@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { denyIfNotAdmin } from "@/lib/sms/auth-admin";
 import { sendReminderForCita } from "@/lib/sms/reminders";
 
 export const runtime = "nodejs";
@@ -13,23 +13,8 @@ export const maxDuration = 30;
  */
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profile?.role !== "admin") {
-      return NextResponse.json({ error: "Solo administradores" }, { status: 403 });
-    }
+    const denied = await denyIfNotAdmin();
+    if (denied) return denied;
 
     const body = (await request.json().catch(() => null)) as {
       citaId?: string;
@@ -45,7 +30,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: result.error }, { status: 422 });
     }
 
-    console.log(`[sms-test] ${user.email} → ${result.telefono} (real: ${!result.simulado})`);
+    console.log(`[sms-test] → ${result.telefono} (real: ${!result.simulado})`);
     return NextResponse.json({
       ok: true,
       telefono: result.telefono,

@@ -184,6 +184,40 @@ export async function fetchSimplyBookBookings(dateFrom: string, dateTo: string):
   return [];
 }
 
+export type SimplyBookService = {
+  id: string | number;
+  name?: string;
+  position?: string | number;
+  is_active?: string | number;
+  is_public?: string | number;
+  [key: string]: unknown;
+};
+
+/**
+ * Catálogo de servicios (getEventList), para poder ponerles nombre en el
+ * backoffice aunque todavía no tengan ninguna reserva. Descarta los desactivados
+ * en SimplyBook, que solo ensuciarían la lista.
+ */
+export async function fetchSimplyBookServices(): Promise<SimplyBookService[]> {
+  const { headers } = await getAuthHeaders();
+
+  // [isVisibleOnly, asArray]: false para traer también los no visibles al público
+  const result = await jsonRpcCall<SimplyBookService[] | Record<string, SimplyBookService>>(
+    "https://user-api.simplybook.me/admin",
+    "getEventList",
+    [false, true],
+    headers
+  );
+
+  const lista = Array.isArray(result)
+    ? result
+    : result && typeof result === "object"
+      ? Object.values(result)
+      : [];
+
+  return lista.filter((s) => String(s.is_active ?? "1") !== "0");
+}
+
 /** `start_date` puede venir como "2026-07-31 10:30:00" o partido en fecha + hora. */
 function parseBookingMoment(
   datetime: string | undefined,

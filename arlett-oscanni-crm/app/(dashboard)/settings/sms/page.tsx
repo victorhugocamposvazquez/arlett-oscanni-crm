@@ -448,6 +448,7 @@ export default function SettingsSmsPage() {
   const [aliasServicios, setAliasServicios] = useState<Record<string, string>>({});
   const [aliasDraft, setAliasDraft] = useState<Record<string, string>>({});
   const [nombresSimplybook, setNombresSimplybook] = useState<Record<string, string>>({});
+  const [catalogoRemoto, setCatalogoRemoto] = useState<string[]>([]);
   const [savingServicios, setSavingServicios] = useState(false);
 
   const [citaPrueba, setCitaPrueba] = useState<string>("");
@@ -610,6 +611,21 @@ export default function SettingsSmsPage() {
     if (user?.role === "admin") void loadEnvios();
   }, [user?.role, loadEnvios]);
 
+  // Catálogo completo de SimplyBook: así aparecen también los servicios nuevos
+  // que aún no tienen ninguna cita reservada
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/sms-servicios");
+        const json = (await res.json()) as { servicios?: string[] };
+        setCatalogoRemoto(json.servicios ?? []);
+      } catch {
+        setCatalogoRemoto([]);
+      }
+    })();
+  }, [user?.role]);
+
   const saveConfig = async () => {
     setSavingConfig(true);
     const supabase = createClient();
@@ -731,21 +747,28 @@ export default function SettingsSmsPage() {
     return next;
   }, []);
 
-  /** Servicios vistos en la agenda más los que ya tengan nombre configurado. */
+  /**
+   * Catálogo de SimplyBook, más los servicios vistos en la agenda y los que ya
+   * tengan nombre guardado (por si se retiran de SimplyBook y siguen en citas).
+   */
   const catalogoServicios = useMemo(() => {
-    const porClave = new Map<string, string>();
+    const porClave = new Map<string, { nombre: string; enAgenda: boolean }>();
     for (const c of citas) {
       if (!c.servicio_nombre) continue;
       const clave = normalizeServicioKey(c.servicio_nombre);
-      if (!porClave.has(clave)) porClave.set(clave, c.servicio_nombre);
+      if (!porClave.has(clave)) porClave.set(clave, { nombre: c.servicio_nombre, enAgenda: true });
+    }
+    for (const nombre of catalogoRemoto) {
+      const clave = normalizeServicioKey(nombre);
+      if (!porClave.has(clave)) porClave.set(clave, { nombre, enAgenda: false });
     }
     for (const [clave, nombre] of Object.entries(nombresSimplybook)) {
-      if (!porClave.has(clave)) porClave.set(clave, nombre);
+      if (!porClave.has(clave)) porClave.set(clave, { nombre, enAgenda: false });
     }
     return [...porClave.entries()]
-      .map(([clave, nombre]) => ({ clave, nombre }))
+      .map(([clave, v]) => ({ clave, ...v }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  }, [citas, nombresSimplybook]);
+  }, [citas, catalogoRemoto, nombresSimplybook]);
 
   /** Coste del recordatorio con ese nombre de servicio, para avisar del 2º SMS. */
   const medirConServicio = useCallback(
@@ -1600,9 +1623,10 @@ export default function SettingsSmsPage() {
             </PanelHead>
 
             <p className="border-b border-border px-4 py-2 text-[12px] leading-relaxed text-neutral-500">
-              Lo que escribas aquí es lo que lee el cliente, tal cual. Si lo dejas vacío se usa el
-              nombre de SimplyBook en mayúsculas. La columna de la derecha avisa si el recordatorio
-              se pasa de un SMS con ese nombre.
+              La lista viene del catálogo de SimplyBook, así que los servicios nuevos aparecen aquí
+              aunque todavía no tengan ninguna cita. Lo que escribas es lo que lee el cliente, tal
+              cual; si lo dejas vacío se usa el nombre de SimplyBook en mayúsculas. La columna de la
+              derecha avisa si el recordatorio se pasa de un SMS con ese nombre.
             </p>
 
             <div className="hidden grid-cols-[1fr_1fr_130px] gap-3 border-b border-border bg-neutral-50/60 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 md:grid">
@@ -1613,7 +1637,8 @@ export default function SettingsSmsPage() {
 
             {catalogoServicios.length === 0 ? (
               <p className="px-4 py-10 text-center text-[13px] text-neutral-500">
-                Aún no hay servicios. Sincroniza la agenda y aparecerán aquí.
+                No se han podido leer los servicios de SimplyBook. Revisa las credenciales o
+                sincroniza la agenda.
               </p>
             ) : (
               <ul className="divide-y divide-border">
@@ -1625,8 +1650,15 @@ export default function SettingsSmsPage() {
                       key={s.clave}
                       className="grid gap-1.5 px-4 py-2 md:grid-cols-[1fr_1fr_130px] md:items-center md:gap-3"
                     >
-                      <span className="truncate text-[13px] text-neutral-500" title={s.nombre}>
-                        {s.nombre}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-[13px] text-neutral-500" title={s.nombre}>
+                          {s.nombre}
+                        </span>
+                        {!s.enAgenda && (
+                          <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-neutral-400">
+                            sin citas
+                          </span>
+                        )}
                       </span>
                       <Input
                         value={valor}
