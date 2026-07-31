@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth/auth-context";
 import { Breadcrumb } from "@/components/layout/Breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AlertDialog } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { gsmLength, toGsmSafeText } from "@/lib/sms/gsm";
 import { renderSmsTemplate } from "@/lib/sms/templates";
@@ -43,6 +44,7 @@ type SmsEnvio = {
   plantilla_clave: string | null;
   provider_subid: string | null;
   simulado: boolean;
+  origen: string;
   citas_simplybook: {
     cliente_nombre: string | null;
     servicio_nombre: string | null;
@@ -56,6 +58,7 @@ type Cita = {
   cliente_nombre: string | null;
   cliente_telefono: string | null;
   servicio_nombre: string | null;
+  profesional_nombre: string | null;
   starts_at: string;
   estado: string;
   reminder_due_at: string | null;
@@ -88,7 +91,7 @@ type CitaClasificada = Cita & {
 type Tono = "neutral" | "blue" | "green" | "red" | "amber";
 
 const ENVIO_SELECT =
-  "id, telefono, cuerpo, estado, error_mensaje, enviado_at, created_at, plantilla_clave, provider_subid, simulado, citas_simplybook(cliente_nombre, servicio_nombre, starts_at)";
+  "id, telefono, cuerpo, estado, error_mensaje, enviado_at, created_at, plantilla_clave, provider_subid, simulado, origen, citas_simplybook(cliente_nombre, servicio_nombre, starts_at)";
 
 const PAGE_SIZE = 20;
 
@@ -98,6 +101,7 @@ const CRON_HOUR_UTC = 19;
 const TABS = [
   { id: "citas", label: "Próximas citas" },
   { id: "envios", label: "Envíos" },
+  { id: "pruebas", label: "Pruebas" },
   { id: "config", label: "Configuración" },
 ] as const;
 
@@ -440,6 +444,10 @@ export default function SettingsSmsPage() {
   const [filtroCita, setFiltroCita] = useState<(typeof FILTROS_CITA)[number]["id"]>("todas");
   const [pageCitas, setPageCitas] = useState(0);
 
+  const [citaPrueba, setCitaPrueba] = useState<string>("");
+  const [confirmandoPrueba, setConfirmandoPrueba] = useState(false);
+  const [enviandoPrueba, setEnviandoPrueba] = useState(false);
+
   const desde = useMemo(
     () => desdeIso(RANGOS.find((r) => r.id === rango)?.dias ?? null),
     [rango]
@@ -464,7 +472,7 @@ export default function SettingsSmsPage() {
       supabase
         .from("citas_simplybook")
         .select(
-          "id, simplybook_id, cliente_nombre, cliente_telefono, servicio_nombre, starts_at, estado, reminder_due_at, reminder_sent_at, reminder_skipped_reason, reminder_skipped_phone"
+          "id, simplybook_id, cliente_nombre, cliente_telefono, servicio_nombre, profesional_nombre, starts_at, estado, reminder_due_at, reminder_sent_at, reminder_skipped_reason, reminder_skipped_phone"
         )
         .gte("starts_at", new Date().toISOString())
         .order("starts_at", { ascending: true })
@@ -704,6 +712,62 @@ export default function SettingsSmsPage() {
     if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
     return next;
   }, []);
+
+  /** Mismo texto que compondría el cron para esa cita, con sus reglas GSM. */
+  const cuerpoParaCita = useCallback(
+    (c: Cita): string => {
+      if (!plantilla) return "";
+      const inicio = new Date(c.starts_at);
+      const fecha = formatTz(inicio, config.timezone, {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      }).replace(/\//g, "-");
+      const hora = formatTz(inicio, config.timezone, {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      return toGsmSafeText(
+        renderSmsTemplate(plantilla.cuerpo, {
+          cliente: c.cliente_nombre ?? undefined,
+          servicio: c.servicio_nombre?.toUpperCase() ?? undefined,
+          fecha,
+          hora,
+          profesional: c.profesional_nombre ?? undefined,
+        })
+      );
+    },
+    [plantilla, config.timezone]
+  );
+
+  const citaSeleccionada = useMemo(
+    () => citasClasificadas.find((c) => c.id === citaPrueba) ?? null,
+    [citasClasificadas, citaPrueba]
+  );
+
+  const enviarPrueba = async () => {
+    if (!citaSeleccionada) return;
+    setEnviandoPrueba(true);
+    try {
+      const res = await fetch("/api/admin/sms-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ citaId: citaSeleccionada.id, real: true }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string; telefono?: string };
+      if (!res.ok || !json.ok) {
+        toast.error(json.error ?? "No se pudo enviar el SMS de prueba");
+      } else {
+        toast.success(`SMS real enviado a ${json.telefono}`);
+        await Promise.all([loadBase(), loadEnvios()]);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error de red");
+    }
+    setEnviandoPrueba(false);
+    setConfirmandoPrueba(false);
+  };
 
   const preview = useMemo(() => {
     if (!plantilla) return null;
@@ -1098,6 +1162,14 @@ export default function SettingsSmsPage() {
                             sim
                           </span>
                         )}
+                        {e.origen === "prueba" && (
+                          <span
+                            className="text-[10px] font-semibold uppercase text-neutral-400"
+                            title="Enviado a mano desde la zona de pruebas"
+                          >
+                            prueba
+                          </span>
+                        )}
                       </div>
                       <span className="font-mono text-[12px] tabular-nums text-neutral-600">
                         {e.telefono || "—"}
@@ -1137,6 +1209,106 @@ export default function SettingsSmsPage() {
               atEnd={envioHasta >= enviosTotal}
               disabled={loadingEnvios}
             />
+          </Panel>
+        </div>
+      )}
+
+      {tab === "pruebas" && (
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <Panel>
+            <PanelHead title="Envío real a una sola cita" />
+            <div className="space-y-3 px-4 py-3.5">
+              <p className="text-[13px] leading-relaxed text-neutral-600">
+                Crea una cita a tu nombre en SimplyBook, sincroniza y mándate el recordatorio aquí.
+                Este envío sale <span className="font-semibold">de verdad</span> aunque el modo
+                prueba esté activo, así compruebas el circuito completo (LabsMobile, entrega y
+                estado en el historial) sin que salga nada al resto de la agenda.
+              </p>
+
+              <div className="space-y-1">
+                <span className="text-[11px] font-medium text-neutral-500">Cita</span>
+                <select
+                  className="h-9 w-full rounded-lg border border-border bg-white px-2 text-[13px]"
+                  value={citaPrueba}
+                  onChange={(e) => setCitaPrueba(e.target.value)}
+                >
+                  <option value="">Selecciona una cita…</option>
+                  {citasClasificadas.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {fechaLarga(c.starts_at)} · {c.servicio_nombre ?? "Servicio"} ·{" "}
+                      {c.cliente_nombre ?? "sin cliente"} · {c.cliente_telefono ?? "sin teléfono"}
+                    </option>
+                  ))}
+                </select>
+                {citasClasificadas.length === 0 && (
+                  <p className="text-[11px] text-neutral-400">
+                    No hay citas sincronizadas. Pulsa «Sincronizar y enviar» primero.
+                  </p>
+                )}
+              </div>
+
+              {citaSeleccionada && (
+                <div className="space-y-2 rounded-lg border border-border bg-neutral-50 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-neutral-500">
+                    <span>Destino</span>
+                    <span
+                      className={cn(
+                        "font-mono tabular-nums",
+                        citaSeleccionada.telefonoOk ? "text-neutral-700" : "text-red-600"
+                      )}
+                    >
+                      {citaSeleccionada.telefonoE164
+                        ? `+${citaSeleccionada.telefonoE164}`
+                        : (citaSeleccionada.telefonoMotivo ?? "sin teléfono")}
+                    </span>
+                  </div>
+                  <p className="text-[13px] leading-snug text-neutral-700">
+                    {cuerpoParaCita(citaSeleccionada) || "Sin plantilla activa"}
+                  </p>
+                  {citaSeleccionada.reminder_sent_at && (
+                    <p className="text-[11px] text-amber-700">
+                      Esta cita ya tiene un recordatorio registrado; se enviará otra vez.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <Button
+                size="sm"
+                className="h-9 w-full bg-red-600 text-xs text-white hover:bg-red-700"
+                onClick={() => setConfirmandoPrueba(true)}
+                disabled={!citaSeleccionada?.telefonoOk || !plantilla || enviandoPrueba}
+              >
+                {enviandoPrueba ? "Enviando…" : "Enviar SMS real ahora"}
+              </Button>
+
+              <p className="text-[11px] leading-relaxed text-neutral-400">
+                Se registra en el historial con la marca <span className="font-semibold">prueba</span>{" "}
+                y marca la cita como avisada, para que el cron no repita el mensaje esta noche.
+              </p>
+            </div>
+          </Panel>
+
+          <Panel>
+            <PanelHead title="Qué comprobar" />
+            <ul className="space-y-2.5 px-4 py-3.5 text-[13px] leading-relaxed text-neutral-600">
+              <li>
+                <span className="font-medium text-foreground">Llega el SMS</span> al móvil, con el
+                remitente correcto y el texto sin tildes raras ni cortado a mitad.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Aparece en Envíos</span> como Enviado
+                y sin la marca de simulado.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Pasa a Entregado</span> en un par de
+                minutos: eso confirma que LabsMobile está llamando al webhook de acuse.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Un solo SMS</span> por recordatorio en
+                la previsualización de la plantilla; si marca dos, el texto es demasiado largo.
+              </li>
+            </ul>
           </Panel>
         </div>
       )}
@@ -1321,6 +1493,34 @@ export default function SettingsSmsPage() {
           )}
         </div>
       )}
+
+      <AlertDialog
+        open={confirmandoPrueba}
+        onOpenChange={setConfirmandoPrueba}
+        title="Enviar un SMS real"
+        variant="destructive"
+        confirmLabel="Enviar de verdad"
+        loading={enviandoPrueba}
+        onConfirm={() => void enviarPrueba()}
+        description={
+          citaSeleccionada ? (
+            <span className="block space-y-2">
+              <span className="block">
+                Va a salir un SMS real a{" "}
+                <span className="font-mono font-medium text-foreground">
+                  +{citaSeleccionada.telefonoE164}
+                </span>
+                , con coste en LabsMobile. Asegúrate de que es tu número.
+              </span>
+              <span className="block rounded-lg bg-neutral-50 px-3 py-2 text-[13px] text-neutral-700">
+                {cuerpoParaCita(citaSeleccionada)}
+              </span>
+            </span>
+          ) : (
+            "Selecciona una cita."
+          )
+        }
+      />
     </div>
   );
 }

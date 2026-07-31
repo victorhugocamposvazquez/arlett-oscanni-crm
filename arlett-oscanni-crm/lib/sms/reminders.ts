@@ -200,6 +200,142 @@ type CitaRow = {
   estado: string;
 };
 
+const CITA_SELECT =
+  "id, simplybook_id, cliente_nombre, cliente_telefono, servicio_nombre, profesional_nombre, starts_at, reminder_due_at, reminder_sent_at, reminder_skipped_reason, reminder_skipped_phone, estado";
+
+type PlantillaRow = { clave: string; cuerpo: string; activa: boolean };
+
+async function loadPlantillaRecordatorio(): Promise<PlantillaRow | null> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("sms_plantillas")
+    .select("clave, cuerpo, activa")
+    .eq("clave", "recordatorio_cita")
+    .maybeSingle();
+  if (error || !data?.activa || !data.cuerpo) return null;
+  return data as PlantillaRow;
+}
+
+/**
+ * Texto final del recordatorio. El servicio va en mayúsculas: destaca y disimula
+ * las tildes que se pierden al pasar el texto a GSM ("DEPILACION LASER"), y la
+ * fecha lleva guiones como en los avisos que ya mandaba SimplyBook (30-07-2026).
+ */
+export function renderReminderBody(
+  cita: Pick<CitaRow, "cliente_nombre" | "servicio_nombre" | "profesional_nombre" | "starts_at">,
+  timeZone: string,
+  cuerpoPlantilla: string
+): string {
+  const startsAt = new Date(cita.starts_at);
+  const fecha = formatInTimeZone(startsAt, timeZone, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).replace(/\//g, "-");
+  const hora = formatInTimeZone(startsAt, timeZone, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  return toGsmSafeText(
+    renderSmsTemplate(cuerpoPlantilla, {
+      cliente: cita.cliente_nombre ?? undefined,
+      servicio: cita.servicio_nombre?.toUpperCase() ?? undefined,
+      fecha,
+      hora,
+      profesional: cita.profesional_nombre ?? undefined,
+    })
+  );
+}
+
+export type EnvioPuntualResultado =
+  | { ok: true; telefono: string; cuerpo: string; simulado: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Envía el recordatorio de una sola cita al momento, desde la zona de pruebas.
+ * Con `forzarReal` el SMS sale de verdad aunque el modo prueba esté activo, que
+ * es justo el sentido de la zona: comprobar el circuito con una cita propia.
+ * Marca la cita como avisada para que el cron no repita el mensaje.
+ */
+export async function sendReminderForCita(
+  citaId: string,
+  opciones: { forzarReal?: boolean } = {}
+): Promise<EnvioPuntualResultado> {
+  if (!isLabsMobileConfigured()) {
+    return { ok: false, error: "LabsMobile no configurado" };
+  }
+
+  const config = await loadSmsConfig();
+  const plantilla = await loadPlantillaRecordatorio();
+  if (!plantilla) {
+    return { ok: false, error: "Plantilla recordatorio_cita no disponible o inactiva" };
+  }
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("citas_simplybook")
+    .select(CITA_SELECT)
+    .eq("id", citaId)
+    .maybeSingle();
+
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: "La cita no existe" };
+
+  const cita = data as CitaRow;
+  const telefono = checkPhoneForSms(cita.cliente_telefono);
+  if (!telefono.ok) {
+    return { ok: false, error: `Teléfono no válido: ${telefono.label}` };
+  }
+
+  const simulado = opciones.forzarReal ? false : isTestMode(config);
+  const cuerpo = renderReminderBody(cita, config.timezone, plantilla.cuerpo);
+  const subid = generateSubid();
+  const nowIso = new Date().toISOString();
+  const result = await sendSmsLabsMobile(telefono.phone, cuerpo, { subid, test: simulado });
+
+  if (!result.ok) {
+    await supabase.from("sms_envios").insert({
+      cita_id: cita.id,
+      telefono: telefono.phone,
+      cuerpo,
+      estado: "fallido",
+      error_mensaje: result.error,
+      plantilla_clave: plantilla.clave,
+      enviado_at: nowIso,
+      simulado,
+      origen: "prueba",
+    });
+    return { ok: false, error: result.error };
+  }
+
+  await supabase
+    .from("citas_simplybook")
+    .update({
+      reminder_sent_at: nowIso,
+      reminder_skipped_reason: null,
+      reminder_skipped_phone: null,
+      updated_at: nowIso,
+    })
+    .eq("id", cita.id);
+
+  await supabase.from("sms_envios").insert({
+    cita_id: cita.id,
+    telefono: telefono.phone,
+    cuerpo,
+    estado: "enviado",
+    proveedor: "labsmobile",
+    provider_subid: result.subid ?? subid,
+    plantilla_clave: plantilla.clave,
+    enviado_at: nowIso,
+    simulado,
+    origen: "prueba",
+  });
+
+  return { ok: true, telefono: telefono.phone, cuerpo, simulado };
+}
+
 /** Procesa recordatorios vencidos y envía SMS. */
 export async function processDueReminders(): Promise<{
   processed: number;
@@ -226,13 +362,8 @@ export async function processDueReminders(): Promise<{
   const supabase = createAdminClient();
   const nowIso = new Date().toISOString();
 
-  const { data: plantilla, error: plantillaErr } = await supabase
-    .from("sms_plantillas")
-    .select("clave, cuerpo, activa")
-    .eq("clave", "recordatorio_cita")
-    .maybeSingle();
-
-  if (plantillaErr || !plantilla?.activa || !plantilla.cuerpo) {
+  const plantilla = await loadPlantillaRecordatorio();
+  if (!plantilla) {
     return {
       processed: 0,
       sent: 0,
@@ -244,9 +375,7 @@ export async function processDueReminders(): Promise<{
 
   const { data: citas, error: citasErr } = await supabase
     .from("citas_simplybook")
-    .select(
-      "id, simplybook_id, cliente_nombre, cliente_telefono, servicio_nombre, profesional_nombre, starts_at, reminder_due_at, reminder_sent_at, reminder_skipped_reason, reminder_skipped_phone, estado"
-    )
+    .select(CITA_SELECT)
     .eq("estado", "activa")
     .is("reminder_sent_at", null)
     .lte("reminder_due_at", nowIso)
@@ -268,31 +397,7 @@ export async function processDueReminders(): Promise<{
 
   for (const cita of list) {
     const telefono = checkPhoneForSms(cita.cliente_telefono);
-    const startsAt = new Date(cita.starts_at);
-    // Guiones en lugar de barras, como en los recordatorios que ya se enviaban
-    // desde SimplyBook (30-07-2026)
-    const fecha = formatInTimeZone(startsAt, config.timezone, {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }).replace(/\//g, "-");
-    const hora = formatInTimeZone(startsAt, config.timezone, {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-
-    // El servicio va en mayúsculas: destaca y disimula las tildes que se
-    // pierden al pasar el texto a GSM ("DEPILACION LASER")
-    const cuerpo = toGsmSafeText(
-      renderSmsTemplate(plantilla.cuerpo, {
-        cliente: cita.cliente_nombre ?? undefined,
-        servicio: cita.servicio_nombre?.toUpperCase() ?? undefined,
-        fecha,
-        hora,
-        profesional: cita.profesional_nombre ?? undefined,
-      })
-    );
+    const cuerpo = renderReminderBody(cita, config.timezone, plantilla.cuerpo);
 
     // Nada de llamar a LabsMobile con un fijo o un +34000000000: se factura igual.
     // La cita no se cierra: se anota el número rechazado, de modo que corregirlo

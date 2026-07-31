@@ -392,6 +392,7 @@ export interface Database {
           error_mensaje: string | null;
           plantilla_clave: string | null;
           simulado: boolean;
+          origen: string;
           enviado_at: string | null;
           entregado_at: string | null;
           created_at: string | null;
@@ -409,6 +410,7 @@ export interface Database {
           error_mensaje?: string | null;
           plantilla_clave?: string | null;
           simulado?: boolean;
+          origen?: string;
           enviado_at?: string | null;
           entregado_at?: string | null;
           created_at?: string | null;
@@ -425,6 +427,7 @@ export interface Database {
           error_mensaje?: string | null;
           plantilla_clave?: string | null;
           simulado?: boolean;
+          origen?: string;
           enviado_at?: string | null;
           entregado_at?: string | null;
           updated_at?: string | null;

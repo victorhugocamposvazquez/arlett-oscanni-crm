@@ -22,9 +22,10 @@ export function isLabsMobileConfigured(): boolean {
 }
 
 /**
- * Candado de entorno: con LABSMOBILE_TEST_MODE=1 nada sale de verdad, por más
- * que el backoffice tenga el modo prueba desactivado. Sirve para blindar un
- * entorno (preview, local) sin depender de lo que haya en la base de datos.
+ * Con LABSMOBILE_TEST_MODE=1 los envíos automáticos nunca salen de verdad, por
+ * más que el backoffice tenga el modo prueba desactivado. Sirve para blindar un
+ * entorno (preview, local) sin depender de lo que haya en la base de datos. Solo
+ * lo salta un envío manual desde la zona de pruebas, que es una acción explícita.
  */
 export function isLabsMobileTestModeForced(): boolean {
   return getLabsMobileConfig()?.testMode ?? false;
@@ -69,7 +70,9 @@ export async function sendSmsLabsMobile(
   if (cfg.sender) payload.tpoa = cfg.sender;
   if (options.subid) payload.subid = options.subid;
   if (cfg.ackUrl) payload.ackurl = cfg.ackUrl;
-  if (options.test || cfg.testMode) payload.test = 1;
+  // `test` explícito manda sobre la variable de entorno: así la zona de pruebas
+  // puede mandar un SMS real aunque el entorno esté blindado
+  if (options.test ?? cfg.testMode) payload.test = 1;
 
   let res: Response;
   try {
