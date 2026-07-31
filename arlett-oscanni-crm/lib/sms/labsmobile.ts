@@ -1,3 +1,5 @@
+import { gsmLength } from "@/lib/sms/gsm";
+
 export type LabsMobileSendResult =
   | { ok: true; subid: string | null; code: string }
   | { ok: false; error: string; code?: string; status?: number };
@@ -29,23 +31,6 @@ export function generateSubid(): string {
   return `a${Date.now().toString(36)}${rand}`.slice(0, 20);
 }
 
-// Alfabeto GSM 03.38, el único válido en un SMS estándar. No incluye "á", "í",
-// "ó" ni "ú", inevitables aquí ("Depilación", "María"), así que esos mensajes
-// hay que marcarlos como Unicode o llegan con los caracteres sustituidos.
-const GSM_BASIC =
-  "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
-const GSM_EXTENDED = "^{}\\[~]|€\f";
-
-/** Longitud en caracteres GSM, o null si el texto necesita Unicode. */
-function gsmLength(text: string): number | null {
-  let length = 0;
-  for (const char of text) {
-    if (GSM_BASIC.includes(char)) length += 1;
-    else if (GSM_EXTENDED.includes(char)) length += 2;
-    else return null;
-  }
-  return length;
-}
 
 /**
  * Envía un SMS con la API http/POST de LabsMobile.

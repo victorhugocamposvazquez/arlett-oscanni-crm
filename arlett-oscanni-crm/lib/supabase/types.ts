@@ -385,6 +385,7 @@ export interface Database {
           provider_subid: string | null;
           error_mensaje: string | null;
           plantilla_clave: string | null;
+          simulado: boolean;
           enviado_at: string | null;
           entregado_at: string | null;
           created_at: string | null;
@@ -401,6 +402,7 @@ export interface Database {
           provider_subid?: string | null;
           error_mensaje?: string | null;
           plantilla_clave?: string | null;
+          simulado?: boolean;
           enviado_at?: string | null;
           entregado_at?: string | null;
           created_at?: string | null;
@@ -416,6 +418,7 @@ export interface Database {
           provider_subid?: string | null;
           error_mensaje?: string | null;
           plantilla_clave?: string | null;
+          simulado?: boolean;
           enviado_at?: string | null;
           entregado_at?: string | null;
           updated_at?: string | null;

@@ -40,6 +40,7 @@ type SmsEnvio = {
   created_at: string;
   plantilla_clave: string | null;
   provider_subid: string | null;
+  simulado: boolean;
   citas_simplybook: {
     cliente_nombre: string | null;
     servicio_nombre: string | null;
@@ -107,7 +108,7 @@ export default function SettingsSmsPage() {
       supabase
         .from("sms_envios")
         .select(
-          "id, telefono, cuerpo, estado, error_mensaje, enviado_at, created_at, plantilla_clave, provider_subid, citas_simplybook(cliente_nombre, servicio_nombre, starts_at)"
+          "id, telefono, cuerpo, estado, error_mensaje, enviado_at, created_at, plantilla_clave, provider_subid, simulado, citas_simplybook(cliente_nombre, servicio_nombre, starts_at)"
         )
         .order("created_at", { ascending: false })
         .limit(50),
@@ -207,6 +208,7 @@ export default function SettingsSmsPage() {
         ok?: boolean;
         error?: string;
         sync?: unknown;
+        simulado?: boolean;
         send?: { sent?: number; failed?: number; skipped?: number; errors?: string[] };
       };
       if (!res.ok || !json.ok) {
@@ -214,7 +216,8 @@ export default function SettingsSmsPage() {
       } else {
         const s = json.send;
         toast.success(
-          `Sync OK. Enviados: ${s?.sent ?? 0}, omitidos: ${s?.skipped ?? 0}, fallidos: ${s?.failed ?? 0}`
+          `Sync OK. Enviados: ${s?.sent ?? 0}, omitidos: ${s?.skipped ?? 0}, fallidos: ${s?.failed ?? 0}` +
+            (json.simulado ? " · MODO SIMULADO: no ha salido ningún SMS real" : "")
         );
         if (s?.errors?.length) toast.message(s.errors.slice(0, 2).join(" · "));
         await load();
@@ -449,6 +452,7 @@ export default function SettingsSmsPage() {
                     <li key={e.id} className="space-y-1 py-3 text-sm">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant={ESTADO_VARIANT[e.estado] ?? "borrador"}>{e.estado}</Badge>
+                        {e.simulado && <Badge variant="borrador">simulado</Badge>}
                         <span className="font-medium">{e.telefono || "—"}</span>
                         <span className="text-neutral-400">
                           {e.enviado_at

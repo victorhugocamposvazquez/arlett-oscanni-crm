@@ -15,10 +15,12 @@ import { DEFAULT_TIMEZONE, zonedNaiveToDate } from "@/lib/sms/tz";
 import {
   generateSubid,
   isLabsMobileConfigured,
+  isLabsMobileTestMode,
   sendSmsLabsMobile,
 } from "@/lib/sms/labsmobile";
 import { normalizePhoneE164 } from "@/lib/sms/phone";
 import { renderSmsTemplate } from "@/lib/sms/templates";
+import { toGsmSafeText } from "@/lib/sms/gsm";
 
 export type SmsConfigRow = {
   id: number;
@@ -215,28 +217,35 @@ export async function processDueReminders(): Promise<{
   let skipped = 0;
   let failed = 0;
   const list = (citas ?? []) as CitaRow[];
+  const simulado = isLabsMobileTestMode();
 
   for (const cita of list) {
     const phone = normalizePhoneE164(cita.cliente_telefono);
     const startsAt = new Date(cita.starts_at);
+    // Guiones en lugar de barras, como en los recordatorios que ya se enviaban
+    // desde SimplyBook (30-07-2026)
     const fecha = formatInTimeZone(startsAt, config.timezone, {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
-    });
+    }).replace(/\//g, "-");
     const hora = formatInTimeZone(startsAt, config.timezone, {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
     });
 
-    const cuerpo = renderSmsTemplate(plantilla.cuerpo, {
-      cliente: cita.cliente_nombre ?? undefined,
-      servicio: cita.servicio_nombre ?? undefined,
-      fecha,
-      hora,
-      profesional: cita.profesional_nombre ?? undefined,
-    });
+    // El servicio va en mayúsculas: destaca y disimula las tildes que se
+    // pierden al pasar el texto a GSM ("DEPILACION LASER")
+    const cuerpo = toGsmSafeText(
+      renderSmsTemplate(plantilla.cuerpo, {
+        cliente: cita.cliente_nombre ?? undefined,
+        servicio: cita.servicio_nombre?.toUpperCase() ?? undefined,
+        fecha,
+        hora,
+        profesional: cita.profesional_nombre ?? undefined,
+      })
+    );
 
     if (!phone) {
       skipped += 1;
@@ -274,6 +283,7 @@ export async function processDueReminders(): Promise<{
         error_mensaje: result.error,
         plantilla_clave: plantilla.clave,
         enviado_at: nowIso,
+        simulado,
       });
       // No marcar sent_at para reintentar en el siguiente cron (salvo errores permanentes de config)
       if (result.status === 401 || result.status === 403) {
@@ -302,6 +312,7 @@ export async function processDueReminders(): Promise<{
       provider_subid: result.subid ?? subid,
       plantilla_clave: plantilla.clave,
       enviado_at: nowIso,
+      simulado,
     });
   }
 
