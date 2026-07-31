@@ -499,13 +499,21 @@ export default function SettingsSmsPage() {
     setNombresSimplybook(nombres);
 
     if (cfgRes.data) {
+      // Sin la migración, test_mode llega vacío: se muestra el modo prueba
+      // activo, que es el lado seguro, y se avisa de que falta el esquema
+      const conTestMode = typeof cfgRes.data.test_mode === "boolean";
+      if (!conTestMode) {
+        setErrorEsquema(
+          "Falta la columna sms_config.test_mode: aplica la migración 20260731120000_sms_config_test_mode.sql"
+        );
+      }
       setConfig({
         enabled: Boolean(cfgRes.data.enabled),
         reminder_mode: cfgRes.data.reminder_mode as SmsConfig["reminder_mode"],
         reminder_hours_before: Number(cfgRes.data.reminder_hours_before ?? 24),
         reminder_send_hour: Number(cfgRes.data.reminder_send_hour ?? 21),
         timezone: String(cfgRes.data.timezone ?? "Europe/Madrid"),
-        test_mode: Boolean(cfgRes.data.test_mode),
+        test_mode: conTestMode ? cfgRes.data.test_mode : true,
       });
     }
     if (plantRes.data) setPlantilla(plantRes.data as Plantilla);

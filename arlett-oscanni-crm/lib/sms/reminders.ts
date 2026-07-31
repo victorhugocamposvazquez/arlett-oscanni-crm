@@ -33,9 +33,14 @@ export type SmsConfigRow = {
   test_mode: boolean;
 };
 
-/** El modo prueba se decide en la configuración, pero el entorno puede forzarlo. */
-export function isTestMode(config: Pick<SmsConfigRow, "test_mode">): boolean {
-  return Boolean(config.test_mode) || isLabsMobileTestModeForced();
+/**
+ * El modo prueba se decide en la configuración, pero el entorno puede forzarlo.
+ * Si la columna test_mode todavía no existe (migración sin aplicar) se asume que
+ * sí: más vale un recordatorio que no sale que una factura sorpresa.
+ */
+export function isTestMode(config: Partial<Pick<SmsConfigRow, "test_mode">>): boolean {
+  if (typeof config.test_mode !== "boolean") return true;
+  return config.test_mode || isLabsMobileTestModeForced();
 }
 
 function formatInTimeZone(
