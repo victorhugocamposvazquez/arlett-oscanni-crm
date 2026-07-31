@@ -18,7 +18,7 @@ import {
   isLabsMobileTestMode,
   sendSmsLabsMobile,
 } from "@/lib/sms/labsmobile";
-import { checkPhoneForSms } from "@/lib/sms/phone";
+import { checkPhoneForSms, normalizePhoneE164 } from "@/lib/sms/phone";
 import { renderSmsTemplate } from "@/lib/sms/templates";
 import { toGsmSafeText } from "@/lib/sms/gsm";
 
@@ -73,6 +73,23 @@ function mapBookingEstado(b: SimplyBookBooking): "activa" | "cancelada" {
   return bookingIsCancelled(b) ? "cancelada" : "activa";
 }
 
+/**
+ * Un aviso ya enviado se reabre si el teléfono de la cita pasa a ser otro
+ * distinto: el cliente nuevo no ha recibido nada. Se comparan los números
+ * normalizados para que un simple cambio de formato ("600111222" →
+ * "+34 600 111 222") no provoque un segundo SMS al mismo móvil.
+ */
+function telefonoCambiado(anterior: string | null, actual: string | null): boolean {
+  return normalizePhoneE164(anterior) !== normalizePhoneE164(actual);
+}
+
+/** Campos que reabren el recordatorio cuando el teléfono deja de ser el mismo. */
+const RESET_AVISO = {
+  reminder_sent_at: null,
+  reminder_skipped_reason: null,
+  reminder_skipped_phone: null,
+} as const;
+
 export async function loadSmsConfig(): Promise<SmsConfigRow> {
   const supabase = createAdminClient();
   const { data, error } = await supabase.from("sms_config").select("*").eq("id", 1).maybeSingle();
@@ -108,6 +125,19 @@ export async function syncSimplyBookAppointments(daysAhead = 14): Promise<{ upse
 
   const tz = config.timezone || DEFAULT_TIMEZONE;
 
+  // Estado previo, para detectar los teléfonos que se han corregido
+  const previaPorId = new Map<string, { cliente_telefono: string | null; reminder_sent_at: string | null }>();
+  if (bookings.length > 0) {
+    const { data: previas } = await supabase
+      .from("citas_simplybook")
+      .select("simplybook_id, cliente_telefono, reminder_sent_at")
+      .in(
+        "simplybook_id",
+        bookings.map((b) => String(b.id))
+      );
+    for (const p of previas ?? []) previaPorId.set(p.simplybook_id, p);
+  }
+
   for (const b of bookings) {
     const startsAt = bookingStartDateTime(b, tz);
     if (!startsAt) continue;
@@ -117,11 +147,17 @@ export async function syncSimplyBookAppointments(daysAhead = 14): Promise<{ upse
     const reminderDueAt =
       estado === "activa" ? computeReminderDueAt(startsAt, config) : null;
 
+    const telefono = bookingPhone(b);
+    const previa = previaPorId.get(simplybookId);
+    const reabrirAviso =
+      previa?.reminder_sent_at != null && telefonoCambiado(previa.cliente_telefono, telefono);
+
     const { error } = await supabase.from("citas_simplybook").upsert(
       {
+        ...(reabrirAviso ? RESET_AVISO : {}),
         simplybook_id: simplybookId,
         cliente_nombre: bookingClientName(b),
-        cliente_telefono: bookingPhone(b),
+        cliente_telefono: telefono,
         cliente_email: b.client_email ? String(b.client_email) : null,
         servicio_nombre: bookingServiceName(b),
         profesional_nombre: bookingProviderName(b),
@@ -152,6 +188,8 @@ type CitaRow = {
   starts_at: string;
   reminder_due_at: string | null;
   reminder_sent_at: string | null;
+  reminder_skipped_reason: string | null;
+  reminder_skipped_phone: string | null;
   estado: string;
 };
 
@@ -200,14 +238,16 @@ export async function processDueReminders(): Promise<{
   const { data: citas, error: citasErr } = await supabase
     .from("citas_simplybook")
     .select(
-      "id, simplybook_id, cliente_nombre, cliente_telefono, servicio_nombre, profesional_nombre, starts_at, reminder_due_at, reminder_sent_at, estado"
+      "id, simplybook_id, cliente_nombre, cliente_telefono, servicio_nombre, profesional_nombre, starts_at, reminder_due_at, reminder_sent_at, reminder_skipped_reason, reminder_skipped_phone, estado"
     )
     .eq("estado", "activa")
     .is("reminder_sent_at", null)
     .lte("reminder_due_at", nowIso)
     .gt("starts_at", nowIso)
     .order("reminder_due_at", { ascending: true })
-    .limit(40);
+    // Las citas con teléfono no válido siguen en la cola hasta que pasa su hora,
+    // así que el margen es holgado para que no tapen a las que sí se pueden enviar
+    .limit(100);
 
   if (citasErr) {
     return { processed: 0, sent: 0, skipped: 0, failed: 0, errors: [citasErr.message] };
@@ -247,14 +287,22 @@ export async function processDueReminders(): Promise<{
       })
     );
 
-    // Nada de llamar a LabsMobile con un fijo o un +34000000000: se factura igual
+    // Nada de llamar a LabsMobile con un fijo o un +34000000000: se factura igual.
+    // La cita no se cierra: se anota el número rechazado, de modo que corregirlo
+    // en SimplyBook basta para que el aviso vuelva a la cola. Mientras siga
+    // siendo el mismo número, se omite en silencio y no se duplica el histórico.
     if (!telefono.ok) {
       skipped += 1;
+      const yaRegistrado =
+        cita.reminder_skipped_phone !== null &&
+        cita.reminder_skipped_phone === (cita.cliente_telefono ?? "");
+      if (yaRegistrado) continue;
+
       await supabase
         .from("citas_simplybook")
         .update({
-          reminder_sent_at: nowIso,
           reminder_skipped_reason: telefono.label,
+          reminder_skipped_phone: cita.cliente_telefono ?? "",
           updated_at: nowIso,
         })
         .eq("id", cita.id);
@@ -301,6 +349,7 @@ export async function processDueReminders(): Promise<{
       .update({
         reminder_sent_at: nowIso,
         reminder_skipped_reason: null,
+        reminder_skipped_phone: null,
         updated_at: nowIso,
       })
       .eq("id", cita.id);
@@ -375,11 +424,21 @@ export async function upsertCitaFromWebhookPayload(payload: Record<string, unkno
   const reminderDueAt =
     estado === "activa" && startsAt ? computeReminderDueAt(startsAt, config) : null;
 
+  const telefono = bookingPhone(pseudo);
+  const { data: previa } = await supabase
+    .from("citas_simplybook")
+    .select("cliente_telefono, reminder_sent_at")
+    .eq("simplybook_id", simplybookId)
+    .maybeSingle();
+  const reabrirAviso =
+    previa?.reminder_sent_at != null && telefonoCambiado(previa.cliente_telefono, telefono);
+
   await supabase.from("citas_simplybook").upsert(
     {
+      ...(reabrirAviso ? RESET_AVISO : {}),
       simplybook_id: simplybookId,
       cliente_nombre: bookingClientName(pseudo),
-      cliente_telefono: bookingPhone(pseudo),
+      cliente_telefono: telefono,
       cliente_email: pseudo.client_email ?? null,
       servicio_nombre: bookingServiceName(pseudo),
       profesional_nombre: bookingProviderName(pseudo),

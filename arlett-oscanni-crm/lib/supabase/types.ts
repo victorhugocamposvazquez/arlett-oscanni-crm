@@ -334,6 +334,7 @@ export interface Database {
           reminder_due_at: string | null;
           reminder_sent_at: string | null;
           reminder_skipped_reason: string | null;
+          reminder_skipped_phone: string | null;
           raw_payload: Record<string, unknown> | null;
           created_at: string | null;
           updated_at: string | null;
@@ -352,6 +353,7 @@ export interface Database {
           reminder_due_at?: string | null;
           reminder_sent_at?: string | null;
           reminder_skipped_reason?: string | null;
+          reminder_skipped_phone?: string | null;
           raw_payload?: Record<string, unknown> | null;
           created_at?: string | null;
           updated_at?: string | null;
@@ -369,6 +371,7 @@ export interface Database {
           reminder_due_at?: string | null;
           reminder_sent_at?: string | null;
           reminder_skipped_reason?: string | null;
+          reminder_skipped_phone?: string | null;
           raw_payload?: Record<string, unknown> | null;
           updated_at?: string | null;
         };

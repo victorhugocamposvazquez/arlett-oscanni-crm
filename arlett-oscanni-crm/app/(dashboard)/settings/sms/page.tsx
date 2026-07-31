@@ -60,6 +60,7 @@ type Cita = {
   reminder_due_at: string | null;
   reminder_sent_at: string | null;
   reminder_skipped_reason: string | null;
+  reminder_skipped_phone: string | null;
 };
 
 type CitaEstadoId =
@@ -76,6 +77,7 @@ type CitaClasificada = Cita & {
   telefonoOk: boolean;
   telefonoMotivo: string | null;
   telefonoE164: string | null;
+  telefonoCorregido: boolean;
 };
 
 type Tono = "neutral" | "blue" | "green" | "red" | "amber";
@@ -183,6 +185,8 @@ function clasificarCita(c: Cita, ahora: number): CitaClasificada {
     telefonoOk: tel.ok,
     telefonoMotivo: tel.ok ? null : tel.label,
     telefonoE164: tel.ok ? tel.phone : null,
+    // Se rechazó un número y ahora hay otro válido: el aviso se reintenta
+    telefonoCorregido: tel.ok && c.reminder_skipped_phone !== null && !c.reminder_sent_at,
   };
   const estadoId: CitaEstadoId =
     c.estado === "cancelada"
@@ -443,7 +447,7 @@ export default function SettingsSmsPage() {
       supabase
         .from("citas_simplybook")
         .select(
-          "id, simplybook_id, cliente_nombre, cliente_telefono, servicio_nombre, starts_at, estado, reminder_due_at, reminder_sent_at, reminder_skipped_reason"
+          "id, simplybook_id, cliente_nombre, cliente_telefono, servicio_nombre, starts_at, estado, reminder_due_at, reminder_sent_at, reminder_skipped_reason, reminder_skipped_phone"
         )
         .gte("starts_at", new Date().toISOString())
         .order("starts_at", { ascending: true })
@@ -864,13 +868,14 @@ export default function SettingsSmsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <Pill tono={pill.tono}>{pill.label}</Pill>
                         <span className="min-w-0 truncate text-[11px] text-neutral-500">
-                          {c.reminder_skipped_reason ??
-                            c.telefonoMotivo ??
-                            (c.reminder_sent_at
-                              ? `enviado ${fechaCorta(c.reminder_sent_at)}`
-                              : c.reminder_due_at
-                                ? `previsto ${fechaCorta(c.reminder_due_at)}`
-                                : "sin fecha de aviso")}
+                          {c.telefonoMotivo ??
+                            (c.telefonoCorregido
+                              ? "teléfono corregido, se reintenta"
+                              : c.reminder_sent_at
+                                ? `enviado ${fechaCorta(c.reminder_sent_at)}`
+                                : c.reminder_due_at
+                                  ? `previsto ${fechaCorta(c.reminder_due_at)}`
+                                  : "sin fecha de aviso")}
                         </span>
                       </div>
                     </li>
