@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, FileText, ClipboardList } from "lucide-react";
+import { useMemo } from "react";
+import { Home, Users, FileText, ClipboardList, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth/auth-context";
 
-const navItems = [
+const baseNavItems = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/presupuestos", label: "Presupuestos", icon: ClipboardList },
@@ -14,6 +16,15 @@ const navItems = [
 
 export function MobileNav() {
   const pathname = usePathname();
+  const { user } = useAuth();
+
+  const navItems = useMemo(
+    () =>
+      user?.role === "admin"
+        ? [...baseNavItems, { href: "/settings/sms", label: "SMS", icon: MessageSquare }]
+        : baseNavItems,
+    [user?.role]
+  );
 
   return (
     <nav
@@ -21,7 +32,7 @@ export function MobileNav() {
       role="navigation"
       aria-label="Navegación principal"
     >
-      <div className="flex h-[4.25rem] items-center justify-evenly px-3 sm:px-4">
+      <div className="flex h-[4.25rem] items-center justify-evenly px-2 sm:px-4">
         {navItems.map(({ href, label, icon: Icon }) => {
           const isActive =
             pathname === href ||

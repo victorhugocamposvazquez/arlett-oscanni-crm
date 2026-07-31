@@ -23,13 +23,20 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 import { Sheet } from "@/components/ui/sheet";
 
-const navItems = [
+const baseNavItems = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/presupuestos", label: "Presupuestos", icon: ClipboardList },
   { href: "/facturas", label: "Facturas", icon: FileText },
-  { href: "/settings", label: "Ajustes", icon: Settings },
 ];
+
+/** "/settings" no debe marcarse activo cuando la ruta es una subsección con su propia entrada. */
+function isNavActive(href: string, pathname: string): boolean {
+  if (pathname === href) return true;
+  if (href === "/") return false;
+  if (href === "/settings") return pathname.startsWith("/settings") && !pathname.startsWith("/settings/sms");
+  return pathname.startsWith(href);
+}
 
 export function TopBar() {
   const pathname = usePathname();
@@ -64,6 +71,15 @@ export function TopBar() {
     setPassword("");
     setConfirmPassword("");
   };
+
+  const navItems = useMemo(() => {
+    const items = [...baseNavItems];
+    if (user?.role === "admin") {
+      items.push({ href: "/settings/sms", label: "SMS", icon: MessageSquare });
+    }
+    items.push({ href: "/settings", label: "Ajustes", icon: Settings });
+    return items;
+  }, [user?.role]);
 
   const initials = useMemo(() => {
     const source = user?.email?.split("@")[0] ?? "U";
@@ -100,16 +116,13 @@ export function TopBar() {
             aria-label="Navegación principal"
           >
             {navItems.map(({ href, label, icon: Icon }) => {
-              const isActive =
-                pathname === href ||
-                (href !== "/" && href !== "/settings" && pathname.startsWith(href)) ||
-                (href === "/settings" && pathname.startsWith("/settings"));
+              const isActive = isNavActive(href, pathname);
               return (
                 <Link
                   key={href}
                   href={href}
                   className={cn(
-                    "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all",
+                    "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all",
                     isActive
                       ? "bg-accent/10 text-accent"
                       : "text-neutral-600 hover:bg-accent/5 hover:text-accent"
