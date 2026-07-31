@@ -67,10 +67,14 @@ type CitaEstadoId =
   | "en_cola"
   | "programada"
   | "avisada"
+  | "simulada"
   | "no_enviable"
   | "omitida"
   | "cancelada"
   | "sin_programar";
+
+/** Último envío registrado de una cita, para saber si fue real o simulado. */
+type UltimoEnvio = { estado: string; simulado: boolean };
 
 type CitaClasificada = Cita & {
   estadoId: CitaEstadoId;
@@ -117,7 +121,8 @@ const ENVIO_PILL: Record<string, { label: string; tono: Tono }> = {
 const CITA_PILL: Record<CitaEstadoId, { label: string; tono: Tono }> = {
   en_cola: { label: "En cola", tono: "blue" },
   programada: { label: "Programada", tono: "neutral" },
-  avisada: { label: "Avisada", tono: "green" },
+  avisada: { label: "Enviado", tono: "green" },
+  simulada: { label: "Simulada", tono: "amber" },
   no_enviable: { label: "No enviable", tono: "red" },
   omitida: { label: "Omitida", tono: "amber" },
   cancelada: { label: "Cancelada", tono: "neutral" },
@@ -129,7 +134,7 @@ const FILTROS_CITA = [
   { id: "en_cola", label: "En cola" },
   { id: "programada", label: "Programadas" },
   { id: "no_enviable", label: "No enviables" },
-  { id: "avisada", label: "Avisadas" },
+  { id: "avisada", label: "Enviados" },
 ] as const;
 
 /** Medianoche local de hace `dias - 1` días, para que "7 días" incluya hoy. */
@@ -178,7 +183,7 @@ function diaRelativo(iso: string): string | null {
   return null;
 }
 
-function clasificarCita(c: Cita, ahora: number): CitaClasificada {
+function clasificarCita(c: Cita, ahora: number, envio?: UltimoEnvio): CitaClasificada {
   const tel = checkPhoneForSms(c.cliente_telefono);
   const base = {
     ...c,
@@ -188,20 +193,25 @@ function clasificarCita(c: Cita, ahora: number): CitaClasificada {
     // Se rechazó un número y ahora hay otro válido: el aviso se reintenta
     telefonoCorregido: tel.ok && c.reminder_skipped_phone !== null && !c.reminder_sent_at,
   };
+
+  // Un recordatorio "enviado" en modo de prueba no ha llegado a ningún móvil, así
+  // que se distingue del real; y si lo último que hubo fue una omisión, manda esa
   const estadoId: CitaEstadoId =
     c.estado === "cancelada"
       ? "cancelada"
-      : c.reminder_sent_at && c.reminder_skipped_reason
-        ? "omitida"
-        : c.reminder_sent_at
-          ? "avisada"
-          : !tel.ok
-            ? "no_enviable"
-            : c.reminder_due_at && new Date(c.reminder_due_at).getTime() <= ahora
-              ? "en_cola"
-              : c.reminder_due_at
-                ? "programada"
-                : "sin_programar";
+      : c.reminder_sent_at
+        ? c.reminder_skipped_reason || envio?.estado === "omitido"
+          ? "omitida"
+          : envio?.simulado
+            ? "simulada"
+            : "avisada"
+        : !tel.ok
+          ? "no_enviable"
+          : c.reminder_due_at && new Date(c.reminder_due_at).getTime() <= ahora
+            ? "en_cola"
+            : c.reminder_due_at
+              ? "programada"
+              : "sin_programar";
   return { ...base, estadoId };
 }
 
@@ -405,6 +415,9 @@ export default function SettingsSmsPage() {
   });
   const [plantilla, setPlantilla] = useState<Plantilla | null>(null);
   const [citas, setCitas] = useState<Cita[]>([]);
+  const [enviosPorCita, setEnviosPorCita] = useState<Record<string, UltimoEnvio>>({});
+  const [modoPrueba, setModoPrueba] = useState<boolean | null>(null);
+  const [errorEsquema, setErrorEsquema] = useState<string | null>(null);
 
   const [envios, setEnvios] = useState<SmsEnvio[]>([]);
   const [enviosTotal, setEnviosTotal] = useState(0);
@@ -440,6 +453,7 @@ export default function SettingsSmsPage() {
 
   const loadBase = useCallback(async () => {
     setLoadingBase(true);
+    setErrorEsquema(null);
     const supabase = createClient();
     const [cfgRes, plantRes, citasRes] = await Promise.all([
       supabase.from("sms_config").select("*").eq("id", 1).maybeSingle(),
@@ -464,7 +478,32 @@ export default function SettingsSmsPage() {
       });
     }
     if (plantRes.data) setPlantilla(plantRes.data as Plantilla);
-    setCitas((citasRes.data ?? []) as Cita[]);
+    if (citasRes.error) setErrorEsquema(citasRes.error.message);
+    const listaCitas = (citasRes.data ?? []) as Cita[];
+    setCitas(listaCitas);
+
+    // Último envío de cada cita: es lo único que dice si el aviso fue real o simulado
+    if (listaCitas.length > 0) {
+      const { data: envios, error: enviosError } = await supabase
+        .from("sms_envios")
+        .select("cita_id, estado, simulado, created_at")
+        .in(
+          "cita_id",
+          listaCitas.map((c) => c.id)
+        )
+        .order("created_at", { ascending: false });
+
+      if (enviosError) setErrorEsquema(enviosError.message);
+      const mapa: Record<string, UltimoEnvio> = {};
+      for (const e of envios ?? []) {
+        if (!e.cita_id || mapa[e.cita_id]) continue;
+        mapa[e.cita_id] = { estado: e.estado, simulado: Boolean(e.simulado) };
+      }
+      setEnviosPorCita(mapa);
+    } else {
+      setEnviosPorCita({});
+    }
+
     setLoadingBase(false);
   }, []);
 
@@ -500,6 +539,7 @@ export default function SettingsSmsPage() {
       contar({ simulado: true }),
     ]);
 
+    if (listaRes.error) setErrorEsquema(listaRes.error.message);
     const raw = (listaRes.data ?? []) as Array<
       SmsEnvio & {
         citas_simplybook: SmsEnvio["citas_simplybook"] | SmsEnvio["citas_simplybook"][] | null;
@@ -521,6 +561,19 @@ export default function SettingsSmsPage() {
   useEffect(() => {
     if (user?.role === "admin") void loadBase();
   }, [user?.role, loadBase]);
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/sms-run");
+        const json = (await res.json()) as { simulado?: boolean };
+        setModoPrueba(Boolean(json.simulado));
+      } catch {
+        setModoPrueba(null);
+      }
+    })();
+  }, [user?.role]);
 
   useEffect(() => {
     if (user?.role === "admin") void loadEnvios();
@@ -598,8 +651,8 @@ export default function SettingsSmsPage() {
 
   const citasClasificadas = useMemo(() => {
     const ahora = Date.now();
-    return citas.map((c) => clasificarCita(c, ahora));
-  }, [citas]);
+    return citas.map((c) => clasificarCita(c, ahora, enviosPorCita[c.id]));
+  }, [citas, enviosPorCita]);
 
   const resumenCitas = useMemo(() => {
     const conteo = (id: CitaEstadoId) =>
@@ -609,6 +662,7 @@ export default function SettingsSmsPage() {
       enCola: conteo("en_cola"),
       programadas: conteo("programada"),
       avisadas: conteo("avisada"),
+      simuladas: conteo("simulada"),
       noEnviables: conteo("no_enviable") + conteo("omitida"),
     };
   }, [citasClasificadas]);
@@ -620,7 +674,9 @@ export default function SettingsSmsPage() {
         : citasClasificadas.filter((c) =>
             filtroCita === "no_enviable"
               ? c.estadoId === "no_enviable" || c.estadoId === "omitida"
-              : c.estadoId === filtroCita
+              : filtroCita === "avisada"
+                ? c.estadoId === "avisada" || c.estadoId === "simulada"
+                : c.estadoId === filtroCita
           ),
     [citasClasificadas, filtroCita]
   );
@@ -693,6 +749,7 @@ export default function SettingsSmsPage() {
             <Pill tono={config.enabled ? "green" : "neutral"}>
               {config.enabled ? "Activo" : "Pausado"}
             </Pill>
+            {modoPrueba && <Pill tono="amber">Modo prueba</Pill>}
           </div>
           <p className="mt-1 text-xs text-neutral-500">
             SimplyBook → recordatorio → LabsMobile · próxima ejecución {proximaEjecucionTexto}
@@ -718,6 +775,27 @@ export default function SettingsSmsPage() {
           </Button>
         </div>
       </div>
+
+      {errorEsquema && (
+        <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] text-red-800">
+          <span className="font-semibold">Faltan migraciones por aplicar en Supabase.</span> La
+          consulta ha fallado con: {errorEsquema}. Ejecuta los SQL pendientes de{" "}
+          <code className="rounded bg-red-100 px-1 font-mono text-[12px]">supabase/migrations</code>{" "}
+          o esta pantalla mostrará datos incompletos.
+        </div>
+      )}
+
+      {modoPrueba && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-900">
+          <span className="font-semibold">Modo de prueba activo.</span> LabsMobile acepta los
+          envíos y los damos por buenos, pero no entrega nada: ningún SMS marcado como enviado ha
+          llegado a un móvil. Para enviar de verdad, quita{" "}
+          <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">
+            LABSMOBILE_TEST_MODE
+          </code>{" "}
+          en Vercel y vuelve a desplegar.
+        </div>
+      )}
 
       <nav className="mt-4 flex gap-5 border-b border-border" role="tablist" aria-label="Secciones">
         {TABS.map((t) => {
@@ -766,7 +844,15 @@ export default function SettingsSmsPage() {
                 tono: resumenCitas.enCola > 0 ? "text-blue-700" : undefined,
               },
               { label: "Programadas", valor: resumenCitas.programadas, hint: "aviso más adelante" },
-              { label: "Ya avisadas", valor: resumenCitas.avisadas, tono: "text-emerald-700" },
+              {
+                label: "Enviados",
+                valor: resumenCitas.avisadas,
+                hint:
+                  resumenCitas.simuladas > 0
+                    ? `+${resumenCitas.simuladas} simuladas`
+                    : "SMS real entregado",
+                tono: "text-emerald-700",
+              },
               {
                 label: "No enviables",
                 valor: resumenCitas.noEnviables,
@@ -868,14 +954,18 @@ export default function SettingsSmsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <Pill tono={pill.tono}>{pill.label}</Pill>
                         <span className="min-w-0 truncate text-[11px] text-neutral-500">
-                          {c.telefonoMotivo ??
-                            (c.telefonoCorregido
-                              ? "teléfono corregido, se reintenta"
-                              : c.reminder_sent_at
-                                ? `enviado ${fechaCorta(c.reminder_sent_at)}`
+                          {c.reminder_sent_at
+                            ? c.estadoId === "omitida"
+                              ? (c.reminder_skipped_reason ?? c.telefonoMotivo ?? "omitida")
+                              : c.estadoId === "simulada"
+                                ? `simulado ${fechaCorta(c.reminder_sent_at)} · no salió`
+                                : `enviado ${fechaCorta(c.reminder_sent_at)}`
+                            : (c.telefonoMotivo ??
+                              (c.telefonoCorregido
+                                ? "teléfono corregido, se reintenta"
                                 : c.reminder_due_at
                                   ? `previsto ${fechaCorta(c.reminder_due_at)}`
-                                  : "sin fecha de aviso")}
+                                  : "sin fecha de aviso"))}
                         </span>
                       </div>
                     </li>

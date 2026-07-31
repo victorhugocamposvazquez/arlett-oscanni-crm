@@ -2,31 +2,50 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { processDueReminders, syncSimplyBookAppointments } from "@/lib/sms/reminders";
 import { isSimplyBookConfigured } from "@/lib/sms/simplybook";
-import { isLabsMobileTestMode } from "@/lib/sms/labsmobile";
+import { isLabsMobileConfigured, isLabsMobileTestMode } from "@/lib/sms/labsmobile";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+async function denyIfNotAdmin(): Promise<NextResponse | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "admin") {
+    return NextResponse.json({ error: "Solo administradores" }, { status: 403 });
+  }
+  return null;
+}
+
+/** Estado del proveedor, para que el backoffice avise si está en modo de prueba. */
+export async function GET() {
+  const denied = await denyIfNotAdmin();
+  if (denied) return denied;
+
+  return NextResponse.json({
+    ok: true,
+    simulado: isLabsMobileTestMode(),
+    labsmobile: isLabsMobileConfigured(),
+    simplybook: isSimplyBookConfigured(),
+  });
+}
+
 /** Disparo manual (solo admin autenticado) desde el backoffice SMS. */
 export async function POST() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profile?.role !== "admin") {
-      return NextResponse.json({ error: "Solo administradores" }, { status: 403 });
-    }
+    const denied = await denyIfNotAdmin();
+    if (denied) return denied;
 
     let sync: { upserted: number } | { skipped: string } = { skipped: "SimplyBook no configurado" };
     if (isSimplyBookConfigured()) {
