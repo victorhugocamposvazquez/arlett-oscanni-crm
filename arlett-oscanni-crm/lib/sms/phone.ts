@@ -22,3 +22,63 @@ export function normalizePhoneE164(raw: string | null | undefined, defaultCountr
   }
   return null;
 }
+
+export type PhoneRejectReason = "sin_telefono" | "formato" | "no_movil" | "ficticio";
+
+/** Motivos legibles para el histórico y el backoffice. */
+export const PHONE_REJECT_LABEL: Record<PhoneRejectReason, string> = {
+  sin_telefono: "Sin teléfono",
+  formato: "Formato no válido",
+  no_movil: "No es un móvil",
+  ficticio: "Número ficticio",
+};
+
+export type PhoneCheck =
+  | { ok: true; phone: string }
+  | { ok: false; reason: PhoneRejectReason; label: string };
+
+/**
+ * Números de relleno que se cuelan en las reservas (+34 000 000 000,
+ * 666666666, 612345678…). LabsMobile los factura igual que uno bueno, así que
+ * conviene descartarlos antes de llamar a la API.
+ */
+function isFakeNumber(national: string): boolean {
+  if (national.startsWith("0")) return true;
+  if (new Set(national).size <= 2) return true;
+  const ascendente = [...national].every(
+    (d, i, arr) => i === 0 || Number(d) === Number(arr[i - 1]) + 1
+  );
+  const descendente = [...national].every(
+    (d, i, arr) => i === 0 || Number(d) === Number(arr[i - 1]) - 1
+  );
+  return ascendente || descendente;
+}
+
+/**
+ * Decide si merece la pena gastar un SMS en este teléfono. Los fijos españoles
+ * (9xx, 8xx) no reciben SMS pero se cobran igual, así que se descartan.
+ */
+export function checkPhoneForSms(
+  raw: string | null | undefined,
+  defaultCountry = "34"
+): PhoneCheck {
+  const reject = (reason: PhoneRejectReason): PhoneCheck => ({
+    ok: false,
+    reason,
+    label: PHONE_REJECT_LABEL[reason],
+  });
+
+  if (!raw || !raw.trim()) return reject("sin_telefono");
+
+  const phone = normalizePhoneE164(raw, defaultCountry);
+  if (!phone) return reject("formato");
+
+  const national = phone.startsWith("34") && phone.length === 11 ? phone.slice(2) : phone;
+  if (isFakeNumber(national)) return reject("ficticio");
+
+  if (phone.startsWith("34") && phone.length === 11 && !/^[67]/.test(national)) {
+    return reject("no_movil");
+  }
+
+  return { ok: true, phone };
+}

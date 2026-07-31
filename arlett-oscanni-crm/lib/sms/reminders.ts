@@ -18,7 +18,7 @@ import {
   isLabsMobileTestMode,
   sendSmsLabsMobile,
 } from "@/lib/sms/labsmobile";
-import { normalizePhoneE164 } from "@/lib/sms/phone";
+import { checkPhoneForSms } from "@/lib/sms/phone";
 import { renderSmsTemplate } from "@/lib/sms/templates";
 import { toGsmSafeText } from "@/lib/sms/gsm";
 
@@ -220,7 +220,7 @@ export async function processDueReminders(): Promise<{
   const simulado = isLabsMobileTestMode();
 
   for (const cita of list) {
-    const phone = normalizePhoneE164(cita.cliente_telefono);
+    const telefono = checkPhoneForSms(cita.cliente_telefono);
     const startsAt = new Date(cita.starts_at);
     // Guiones en lugar de barras, como en los recordatorios que ya se enviaban
     // desde SimplyBook (30-07-2026)
@@ -247,13 +247,14 @@ export async function processDueReminders(): Promise<{
       })
     );
 
-    if (!phone) {
+    // Nada de llamar a LabsMobile con un fijo o un +34000000000: se factura igual
+    if (!telefono.ok) {
       skipped += 1;
       await supabase
         .from("citas_simplybook")
         .update({
           reminder_sent_at: nowIso,
-          reminder_skipped_reason: "Sin teléfono válido",
+          reminder_skipped_reason: telefono.label,
           updated_at: nowIso,
         })
         .eq("id", cita.id);
@@ -263,13 +264,14 @@ export async function processDueReminders(): Promise<{
         telefono: cita.cliente_telefono ?? "",
         cuerpo,
         estado: "omitido",
-        error_mensaje: "Sin teléfono válido",
+        error_mensaje: telefono.label,
         plantilla_clave: plantilla.clave,
         enviado_at: nowIso,
       });
       continue;
     }
 
+    const phone = telefono.phone;
     const subid = generateSubid();
     const result = await sendSmsLabsMobile(phone, cuerpo, { subid });
     if (!result.ok) {
