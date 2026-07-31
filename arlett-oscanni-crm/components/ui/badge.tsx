@@ -13,6 +13,8 @@ const badgeVariants = cva(
         borrador: "border-amber-300 bg-amber-100 text-amber-800",
         emitida: "border-blue-300 bg-blue-100 text-blue-800",
         pagada: "border-amber-300 bg-amber-100 text-amber-900",
+        exito: "border-emerald-300 bg-emerald-50 text-emerald-800",
+        error: "border-red-300 bg-red-50 text-red-700",
       },
     },
     defaultVariants: {
