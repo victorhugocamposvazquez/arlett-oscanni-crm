@@ -1,18 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth/auth-context";
 import { Breadcrumb } from "@/components/layout/Breadcrumb";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { gsmLength, toGsmSafeText } from "@/lib/sms/gsm";
 import { renderSmsTemplate } from "@/lib/sms/templates";
+import { checkPhoneForSms } from "@/lib/sms/phone";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
@@ -63,45 +62,90 @@ type Cita = {
   reminder_skipped_reason: string | null;
 };
 
-type Kpis = {
-  total: number;
-  enviado: number;
-  entregado: number;
-  fallido: number;
-  omitido: number;
-  simulados: number;
+type CitaEstadoId =
+  | "en_cola"
+  | "programada"
+  | "avisada"
+  | "no_enviable"
+  | "omitida"
+  | "cancelada"
+  | "sin_programar";
+
+type CitaClasificada = Cita & {
+  estadoId: CitaEstadoId;
+  telefonoOk: boolean;
+  telefonoMotivo: string | null;
+  telefonoE164: string | null;
 };
+
+type Tono = "neutral" | "blue" | "green" | "red" | "amber";
 
 const ENVIO_SELECT =
   "id, telefono, cuerpo, estado, error_mensaje, enviado_at, created_at, plantilla_clave, provider_subid, simulado, citas_simplybook(cliente_nombre, servicio_nombre, starts_at)";
 
 const PAGE_SIZE = 20;
 
+/** El cron de Vercel corre a las 19:00 UTC (≈21:00 en España). */
+const CRON_HOUR_UTC = 19;
+
+const TABS = [
+  { id: "citas", label: "Próximas citas" },
+  { id: "envios", label: "Envíos" },
+  { id: "config", label: "Configuración" },
+] as const;
+
 const RANGOS = [
   { id: "1", label: "Hoy", dias: 1 },
-  { id: "7", label: "7 d", dias: 7 },
-  { id: "30", label: "30 d", dias: 30 },
-  { id: "90", label: "90 d", dias: 90 },
+  { id: "7", label: "7 días", dias: 7 },
+  { id: "30", label: "30 días", dias: 30 },
+  { id: "90", label: "90 días", dias: 90 },
   { id: "todo", label: "Todo", dias: null },
 ] as const;
 
-const ESTADOS = ["todos", "enviado", "entregado", "fallido", "omitido", "pendiente"] as const;
+const ESTADOS_ENVIO = ["todos", "enviado", "entregado", "fallido", "omitido", "pendiente"] as const;
 
-const ESTADO_VARIANT: Record<string, "borrador" | "emitida" | "exito" | "error" | "inactivo"> = {
-  pendiente: "borrador",
-  enviado: "emitida",
-  entregado: "exito",
-  fallido: "error",
-  omitido: "inactivo",
+const ENVIO_PILL: Record<string, { label: string; tono: Tono }> = {
+  pendiente: { label: "Pendiente", tono: "neutral" },
+  enviado: { label: "Enviado", tono: "blue" },
+  entregado: { label: "Entregado", tono: "green" },
+  fallido: { label: "Fallido", tono: "red" },
+  omitido: { label: "Omitido", tono: "amber" },
 };
 
-/** Medianoche local de hace `dias - 1` días, para que "7 d" incluya hoy. */
+const CITA_PILL: Record<CitaEstadoId, { label: string; tono: Tono }> = {
+  en_cola: { label: "En cola", tono: "blue" },
+  programada: { label: "Programada", tono: "neutral" },
+  avisada: { label: "Avisada", tono: "green" },
+  no_enviable: { label: "No enviable", tono: "red" },
+  omitida: { label: "Omitida", tono: "amber" },
+  cancelada: { label: "Cancelada", tono: "neutral" },
+  sin_programar: { label: "Sin programar", tono: "neutral" },
+};
+
+const FILTROS_CITA = [
+  { id: "todas", label: "Todas" },
+  { id: "en_cola", label: "En cola" },
+  { id: "programada", label: "Programadas" },
+  { id: "no_enviable", label: "No enviables" },
+  { id: "avisada", label: "Avisadas" },
+] as const;
+
+/** Medianoche local de hace `dias - 1` días, para que "7 días" incluya hoy. */
 function desdeIso(dias: number | null): string | null {
   if (dias === null) return null;
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() - (dias - 1));
   return d.toISOString();
+}
+
+/** La zona horaria la escribe el usuario, así que puede ser inválida. */
+function formatTz(date: Date, timeZone: string, options: Intl.DateTimeFormatOptions): string {
+  try {
+    return new Intl.DateTimeFormat("es-ES", { timeZone, ...options }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("es-ES", options).format(date);
+  }
 }
 
 const fechaCorta = (iso: string) =>
@@ -112,9 +156,235 @@ const fechaCorta = (iso: string) =>
     minute: "2-digit",
   });
 
+const fechaLarga = (iso: string) =>
+  new Date(iso).toLocaleString("es-ES", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+function diaRelativo(iso: string): string | null {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const dia = new Date(iso);
+  dia.setHours(0, 0, 0, 0);
+  const diff = Math.round((dia.getTime() - hoy.getTime()) / 86_400_000);
+  if (diff === 0) return "Hoy";
+  if (diff === 1) return "Mañana";
+  return null;
+}
+
+function clasificarCita(c: Cita, ahora: number): CitaClasificada {
+  const tel = checkPhoneForSms(c.cliente_telefono);
+  const base = {
+    ...c,
+    telefonoOk: tel.ok,
+    telefonoMotivo: tel.ok ? null : tel.label,
+    telefonoE164: tel.ok ? tel.phone : null,
+  };
+  const estadoId: CitaEstadoId =
+    c.estado === "cancelada"
+      ? "cancelada"
+      : c.reminder_sent_at && c.reminder_skipped_reason
+        ? "omitida"
+        : c.reminder_sent_at
+          ? "avisada"
+          : !tel.ok
+            ? "no_enviable"
+            : c.reminder_due_at && new Date(c.reminder_due_at).getTime() <= ahora
+              ? "en_cola"
+              : c.reminder_due_at
+                ? "programada"
+                : "sin_programar";
+  return { ...base, estadoId };
+}
+
+function Panel({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <section
+      className={cn(
+        "overflow-hidden rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(28,25,23,0.04)]",
+        className
+      )}
+    >
+      {children}
+    </section>
+  );
+}
+
+function PanelHead({
+  title,
+  meta,
+  children,
+}: {
+  title: string;
+  meta?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+        {meta != null && <span className="text-xs tabular-nums text-neutral-400">{meta}</span>}
+      </div>
+      {children}
+    </header>
+  );
+}
+
+const PILL_BG: Record<Tono, string> = {
+  neutral: "bg-neutral-100 text-neutral-700 ring-neutral-200/70",
+  blue: "bg-blue-50 text-blue-700 ring-blue-100",
+  green: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+  red: "bg-red-50 text-red-700 ring-red-100",
+  amber: "bg-amber-50 text-amber-800 ring-amber-100",
+};
+
+const PILL_DOT: Record<Tono, string> = {
+  neutral: "bg-neutral-400",
+  blue: "bg-blue-500",
+  green: "bg-emerald-500",
+  red: "bg-red-500",
+  amber: "bg-amber-500",
+};
+
+function Pill({
+  tono,
+  children,
+  title,
+}: {
+  tono: Tono;
+  children: ReactNode;
+  title?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+        PILL_BG[tono]
+      )}
+    >
+      <span className={cn("h-1.5 w-1.5 rounded-full", PILL_DOT[tono])} aria-hidden />
+      {children}
+    </span>
+  );
+}
+
+function Metrics({
+  items,
+}: {
+  items: { label: string; valor: number | string; hint?: string; tono?: string }[];
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(28,25,23,0.04)]">
+      <div className="-ml-px -mt-px grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+        {items.map((m) => (
+          <div key={m.label} className="border-l border-t border-border px-4 py-3">
+            <p className="text-[11px] font-medium text-neutral-500">{m.label}</p>
+            <p
+              className={cn(
+                "mt-1 text-[22px] font-semibold leading-none tabular-nums",
+                m.tono ?? "text-foreground"
+              )}
+            >
+              {m.valor}
+            </p>
+            <p className="mt-1 h-3.5 text-[11px] leading-none text-neutral-400">{m.hint ?? ""}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: readonly { id: T; label: string }[];
+  onChange: (id: T) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-border bg-neutral-50 p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          className={cn(
+            "rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+            value === o.id
+              ? "bg-white text-foreground shadow-[0_1px_2px_rgba(28,25,23,0.10)]"
+              : "text-neutral-500 hover:text-foreground"
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Pager({
+  desde,
+  hasta,
+  total,
+  onPrev,
+  onNext,
+  disabled,
+  atStart,
+  atEnd,
+}: {
+  desde: number;
+  hasta: number;
+  total: number;
+  onPrev: () => void;
+  onNext: () => void;
+  disabled?: boolean;
+  atStart: boolean;
+  atEnd: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2">
+      <span className="text-[11px] tabular-nums text-neutral-500">
+        {desde}–{hasta} de {total}
+      </span>
+      <div className="flex items-center gap-1">
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-7 gap-1 px-2 text-[11px]"
+          onClick={onPrev}
+          disabled={atStart || disabled}
+        >
+          <ChevronLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
+          Anterior
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-7 gap-1 px-2 text-[11px]"
+          onClick={onNext}
+          disabled={atEnd || disabled}
+        >
+          Siguiente
+          <ChevronRight className="h-3.5 w-3.5" strokeWidth={1.5} />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsSmsPage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
+
+  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("citas");
 
   const [loadingBase, setLoadingBase] = useState(true);
   const [loadingEnvios, setLoadingEnvios] = useState(true);
@@ -131,11 +401,10 @@ export default function SettingsSmsPage() {
   });
   const [plantilla, setPlantilla] = useState<Plantilla | null>(null);
   const [citas, setCitas] = useState<Cita[]>([]);
-  const [citasTotal, setCitasTotal] = useState(0);
 
   const [envios, setEnvios] = useState<SmsEnvio[]>([]);
   const [enviosTotal, setEnviosTotal] = useState(0);
-  const [kpis, setKpis] = useState<Kpis>({
+  const [kpis, setKpis] = useState({
     total: 0,
     enviado: 0,
     entregado: 0,
@@ -145,8 +414,11 @@ export default function SettingsSmsPage() {
   });
 
   const [rango, setRango] = useState<(typeof RANGOS)[number]["id"]>("30");
-  const [estado, setEstado] = useState<(typeof ESTADOS)[number]>("todos");
-  const [page, setPage] = useState(0);
+  const [estadoEnvio, setEstadoEnvio] = useState<(typeof ESTADOS_ENVIO)[number]>("todos");
+  const [pageEnvios, setPageEnvios] = useState(0);
+
+  const [filtroCita, setFiltroCita] = useState<(typeof FILTROS_CITA)[number]["id"]>("todas");
+  const [pageCitas, setPageCitas] = useState(0);
 
   const desde = useMemo(
     () => desdeIso(RANGOS.find((r) => r.id === rango)?.dias ?? null),
@@ -171,12 +443,11 @@ export default function SettingsSmsPage() {
       supabase
         .from("citas_simplybook")
         .select(
-          "id, simplybook_id, cliente_nombre, cliente_telefono, servicio_nombre, starts_at, estado, reminder_due_at, reminder_sent_at, reminder_skipped_reason",
-          { count: "exact" }
+          "id, simplybook_id, cliente_nombre, cliente_telefono, servicio_nombre, starts_at, estado, reminder_due_at, reminder_sent_at, reminder_skipped_reason"
         )
         .gte("starts_at", new Date().toISOString())
         .order("starts_at", { ascending: true })
-        .limit(25),
+        .limit(500),
     ]);
 
     if (cfgRes.data) {
@@ -190,7 +461,6 @@ export default function SettingsSmsPage() {
     }
     if (plantRes.data) setPlantilla(plantRes.data as Plantilla);
     setCitas((citasRes.data ?? []) as Cita[]);
-    setCitasTotal(citasRes.count ?? 0);
     setLoadingBase(false);
   }, []);
 
@@ -201,7 +471,7 @@ export default function SettingsSmsPage() {
     const filtrado = () => {
       let q = supabase.from("sms_envios").select(ENVIO_SELECT, { count: "exact" });
       if (desde) q = q.gte("created_at", desde);
-      if (estado !== "todos") q = q.eq("estado", estado);
+      if (estadoEnvio !== "todos") q = q.eq("estado", estadoEnvio);
       return q;
     };
 
@@ -217,7 +487,7 @@ export default function SettingsSmsPage() {
     const [listaRes, total, enviado, entregado, fallido, omitido, simulados] = await Promise.all([
       filtrado()
         .order("created_at", { ascending: false })
-        .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1),
+        .range(pageEnvios * PAGE_SIZE, pageEnvios * PAGE_SIZE + PAGE_SIZE - 1),
       contar(),
       contar({ estado: "enviado" }),
       contar({ estado: "entregado" }),
@@ -242,7 +512,7 @@ export default function SettingsSmsPage() {
     setEnviosTotal(listaRes.count ?? 0);
     setKpis({ total, enviado, entregado, fallido, omitido, simulados });
     setLoadingEnvios(false);
-  }, [desde, estado, page]);
+  }, [desde, estadoEnvio, pageEnvios]);
 
   useEffect(() => {
     if (user?.role === "admin") void loadBase();
@@ -322,6 +592,48 @@ export default function SettingsSmsPage() {
     setSyncing(false);
   };
 
+  const citasClasificadas = useMemo(() => {
+    const ahora = Date.now();
+    return citas.map((c) => clasificarCita(c, ahora));
+  }, [citas]);
+
+  const resumenCitas = useMemo(() => {
+    const conteo = (id: CitaEstadoId) =>
+      citasClasificadas.filter((c) => c.estadoId === id).length;
+    return {
+      total: citasClasificadas.length,
+      enCola: conteo("en_cola"),
+      programadas: conteo("programada"),
+      avisadas: conteo("avisada"),
+      noEnviables: conteo("no_enviable") + conteo("omitida"),
+    };
+  }, [citasClasificadas]);
+
+  const citasFiltradas = useMemo(
+    () =>
+      filtroCita === "todas"
+        ? citasClasificadas
+        : citasClasificadas.filter((c) =>
+            filtroCita === "no_enviable"
+              ? c.estadoId === "no_enviable" || c.estadoId === "omitida"
+              : c.estadoId === filtroCita
+          ),
+    [citasClasificadas, filtroCita]
+  );
+
+  const citasPagina = useMemo(
+    () => citasFiltradas.slice(pageCitas * PAGE_SIZE, pageCitas * PAGE_SIZE + PAGE_SIZE),
+    [citasFiltradas, pageCitas]
+  );
+
+  const proximaEjecucion = useMemo(() => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setUTCHours(CRON_HOUR_UTC, 0, 0, 0);
+    if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+    return next;
+  }, []);
+
   const preview = useMemo(() => {
     if (!plantilla) return null;
     const texto = toGsmSafeText(
@@ -352,9 +664,16 @@ export default function SettingsSmsPage() {
     );
   }
 
-  const desdeIndice = enviosTotal === 0 ? 0 : page * PAGE_SIZE + 1;
-  const hastaIndice = Math.min((page + 1) * PAGE_SIZE, enviosTotal);
-  const ultimaPagina = hastaIndice >= enviosTotal;
+  const envioDesde = enviosTotal === 0 ? 0 : pageEnvios * PAGE_SIZE + 1;
+  const envioHasta = Math.min((pageEnvios + 1) * PAGE_SIZE, enviosTotal);
+  const citaDesde = citasFiltradas.length === 0 ? 0 : pageCitas * PAGE_SIZE + 1;
+  const citaHasta = Math.min((pageCitas + 1) * PAGE_SIZE, citasFiltradas.length);
+
+  const proximaEjecucionTexto = formatTz(proximaEjecucion, config.timezone, {
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   return (
     <div className="animate-[fadeIn_0.3s_ease-out]">
@@ -363,17 +682,22 @@ export default function SettingsSmsPage() {
         className="mb-3"
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold tracking-tight">SMS y recordatorios</h1>
-          <p className="mt-0.5 text-xs text-neutral-500">
-            SimplyBook → recordatorio → LabsMobile · cron diario 19:00 UTC (≈21:00 España)
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold tracking-tight">SMS</h1>
+            <Pill tono={config.enabled ? "green" : "neutral"}>
+              {config.enabled ? "Activo" : "Pausado"}
+            </Pill>
+          </div>
+          <p className="mt-1 text-xs text-neutral-500">
+            SimplyBook → recordatorio → LabsMobile · próxima ejecución {proximaEjecucionTexto}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Link
             href="/settings"
-            className="inline-flex h-9 items-center gap-1 rounded-md px-2 text-xs font-medium text-neutral-500 hover:text-foreground"
+            className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-neutral-500 hover:text-foreground"
           >
             <ChevronLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
             Ajustes
@@ -381,6 +705,7 @@ export default function SettingsSmsPage() {
           <Button
             size="sm"
             variant="secondary"
+            className="h-8"
             onClick={() => void runCronNow()}
             disabled={syncing || loadingBase}
           >
@@ -390,175 +715,313 @@ export default function SettingsSmsPage() {
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        {[
-          { label: "Total", valor: kpis.total, tono: "text-foreground" },
-          { label: "Enviados", valor: kpis.enviado, tono: "text-blue-700" },
-          { label: "Entregados", valor: kpis.entregado, tono: "text-emerald-700" },
-          { label: "Fallidos", valor: kpis.fallido, tono: "text-red-600" },
-          { label: "Omitidos", valor: kpis.omitido, tono: "text-neutral-500" },
-        ].map((k) => (
-          <div
-            key={k.label}
-            className="rounded-xl border border-border bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(28,25,23,0.03)]"
-          >
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
-              {k.label}
-            </p>
-            <p className={cn("mt-0.5 text-xl font-semibold tabular-nums leading-none", k.tono)}>
-              {k.valor}
-            </p>
-          </div>
-        ))}
-      </div>
+      <nav className="mt-4 flex gap-5 border-b border-border" role="tablist" aria-label="Secciones">
+        {TABS.map((t) => {
+          const activa = tab === t.id;
+          const contador =
+            t.id === "citas" ? resumenCitas.total : t.id === "envios" ? enviosTotal : null;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={activa}
+              onClick={() => setTab(t.id)}
+              className={cn(
+                "-mb-px flex items-center gap-1.5 border-b-2 px-0.5 pb-2.5 text-[13px] font-medium transition-colors",
+                activa
+                  ? "border-accent text-foreground"
+                  : "border-transparent text-neutral-500 hover:text-foreground"
+              )}
+            >
+              {t.label}
+              {contador !== null && (
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[10px] tabular-nums",
+                    activa ? "bg-accent/10 text-accent" : "bg-neutral-100 text-neutral-500"
+                  )}
+                >
+                  {contador}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
-      {kpis.simulados > 0 && (
-        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          <span className="font-semibold">{kpis.simulados}</span> de estos envíos son simulados: se
-          registraron con el modo de prueba activo y no llegaron a ningún teléfono.
-        </p>
+      {tab === "citas" && (
+        <div className="mt-4 space-y-3">
+          <Metrics
+            items={[
+              { label: "Próximas citas", valor: resumenCitas.total, hint: "sincronizadas" },
+              {
+                label: "En cola",
+                valor: resumenCitas.enCola,
+                hint: "saldrán en la próxima",
+                tono: resumenCitas.enCola > 0 ? "text-blue-700" : undefined,
+              },
+              { label: "Programadas", valor: resumenCitas.programadas, hint: "aviso más adelante" },
+              { label: "Ya avisadas", valor: resumenCitas.avisadas, tono: "text-emerald-700" },
+              {
+                label: "No enviables",
+                valor: resumenCitas.noEnviables,
+                hint: "teléfono no válido",
+                tono: resumenCitas.noEnviables > 0 ? "text-red-600" : undefined,
+              },
+            ]}
+          />
+
+          <div
+            className={cn(
+              "rounded-xl border px-4 py-3 text-[13px]",
+              resumenCitas.enCola > 0
+                ? "border-blue-100 bg-blue-50/70 text-blue-900"
+                : "border-border bg-neutral-50 text-neutral-600"
+            )}
+          >
+            {resumenCitas.enCola > 0 ? (
+              <>
+                <span className="font-semibold">
+                  {resumenCitas.enCola} recordatorio{resumenCitas.enCola === 1 ? "" : "s"}
+                </span>{" "}
+                a la espera: saldrá{resumenCitas.enCola === 1 ? "" : "n"} el{" "}
+                {proximaEjecucionTexto}, o ahora mismo si pulsas «Sincronizar y enviar».
+              </>
+            ) : (
+              <>
+                No hay recordatorios pendientes de salir. El siguiente repaso es el{" "}
+                {proximaEjecucionTexto}.
+              </>
+            )}
+          </div>
+
+          <Panel>
+            <PanelHead title="Agenda" meta={`${citasFiltradas.length} citas`}>
+              <Segmented value={filtroCita} options={FILTROS_CITA} onChange={(id) => {
+                setFiltroCita(id);
+                setPageCitas(0);
+              }} />
+            </PanelHead>
+
+            <div className="hidden grid-cols-[1fr_170px_140px_1fr] gap-3 border-b border-border bg-neutral-50/60 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 md:grid">
+              <span>Cita</span>
+              <span>Cuándo</span>
+              <span>Teléfono</span>
+              <span>Recordatorio</span>
+            </div>
+
+            {loadingBase ? (
+              <div className="flex justify-center py-12">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-foreground" />
+              </div>
+            ) : citasPagina.length === 0 ? (
+              <p className="px-4 py-12 text-center text-[13px] text-neutral-500">
+                {citasClasificadas.length === 0
+                  ? "Sin citas sincronizadas. Pulsa «Sincronizar y enviar» para traerlas de SimplyBook."
+                  : "Ninguna cita en este filtro."}
+              </p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {citasPagina.map((c) => {
+                  const pill = CITA_PILL[c.estadoId];
+                  const relativo = diaRelativo(c.starts_at);
+                  return (
+                    <li
+                      key={c.id}
+                      className="grid gap-1.5 px-4 py-2.5 text-[13px] transition-colors hover:bg-neutral-50/80 md:grid-cols-[1fr_170px_140px_1fr] md:items-center md:gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-foreground">
+                          {c.servicio_nombre ?? "Servicio sin nombre"}
+                        </p>
+                        <p className="truncate text-[11px] text-neutral-400">
+                          {c.cliente_nombre ?? "Sin cliente"} · #{c.simplybook_id}
+                        </p>
+                      </div>
+
+                      <div className="tabular-nums text-neutral-600">
+                        <span className="md:hidden text-neutral-400">Cita: </span>
+                        {fechaLarga(c.starts_at)}
+                        {relativo && (
+                          <span className="ml-1.5 rounded bg-neutral-100 px-1 py-0.5 text-[10px] font-medium text-neutral-500">
+                            {relativo}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <p
+                          className={cn(
+                            "truncate font-mono text-[12px] tabular-nums",
+                            c.telefonoOk ? "text-neutral-600" : "text-red-600 line-through"
+                          )}
+                        >
+                          {c.cliente_telefono || "—"}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Pill tono={pill.tono}>{pill.label}</Pill>
+                        <span className="min-w-0 truncate text-[11px] text-neutral-500">
+                          {c.reminder_skipped_reason ??
+                            c.telefonoMotivo ??
+                            (c.reminder_sent_at
+                              ? `enviado ${fechaCorta(c.reminder_sent_at)}`
+                              : c.reminder_due_at
+                                ? `previsto ${fechaCorta(c.reminder_due_at)}`
+                                : "sin fecha de aviso")}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            <Pager
+              desde={citaDesde}
+              hasta={citaHasta}
+              total={citasFiltradas.length}
+              onPrev={() => setPageCitas((p) => Math.max(0, p - 1))}
+              onNext={() => setPageCitas((p) => p + 1)}
+              atStart={pageCitas === 0}
+              atEnd={citaHasta >= citasFiltradas.length}
+              disabled={loadingBase}
+            />
+          </Panel>
+        </div>
       )}
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card className="p-0 lg:col-span-2" animate={false}>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2.5">
-            <div className="flex items-center gap-2">
-              <h2 className="text-[13px] font-semibold">Envíos</h2>
-              <span className="text-[11px] tabular-nums text-neutral-400">{enviosTotal}</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-lg border border-border bg-neutral-50 p-0.5">
-                {RANGOS.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => {
-                      setRango(r.id);
-                      setPage(0);
-                    }}
-                    className={cn(
-                      "rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
-                      rango === r.id
-                        ? "bg-white text-foreground shadow-[0_1px_2px_rgba(28,25,23,0.08)]"
-                        : "text-neutral-500 hover:text-foreground"
-                    )}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-              <select
-                value={estado}
-                onChange={(e) => {
-                  setEstado(e.target.value as (typeof ESTADOS)[number]);
-                  setPage(0);
-                }}
-                className="h-8 rounded-lg border border-border bg-white px-2 text-[11px] capitalize"
-              >
-                {ESTADOS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+      {tab === "envios" && (
+        <div className="mt-4 space-y-3">
+          <Metrics
+            items={[
+              { label: "Registros", valor: kpis.total },
+              { label: "Entregados", valor: kpis.entregado, tono: "text-emerald-700" },
+              { label: "Enviados", valor: kpis.enviado, hint: "sin confirmar", tono: "text-blue-700" },
+              { label: "Fallidos", valor: kpis.fallido, tono: "text-red-600" },
+              { label: "Omitidos", valor: kpis.omitido, hint: "sin coste", tono: "text-amber-700" },
+            ]}
+          />
 
-          <div className="hidden grid-cols-[88px_116px_1fr_112px] gap-3 border-b border-border bg-neutral-50/60 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 md:grid">
-            <span>Estado</span>
-            <span>Teléfono</span>
-            <span>Mensaje</span>
-            <span className="text-right">Registro</span>
-          </div>
-
-          {loadingEnvios ? (
-            <div className="flex justify-center py-10">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-foreground" />
-            </div>
-          ) : envios.length === 0 ? (
-            <p className="px-3 py-10 text-center text-xs text-neutral-500">
-              Sin envíos en este periodo.
+          {kpis.simulados > 0 && (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-900">
+              <span className="font-semibold">{kpis.simulados}</span> de estos envíos son simulados:
+              se registraron con el modo de prueba activo y no llegaron a ningún teléfono.
             </p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {envios.map((e) => (
-                <li
-                  key={e.id}
-                  className="grid gap-1 px-3 py-2 text-[13px] transition-colors hover:bg-neutral-50 md:grid-cols-[88px_116px_1fr_112px] md:items-start md:gap-3"
-                >
-                  <div className="flex items-center gap-1">
-                    <Badge
-                      variant={ESTADO_VARIANT[e.estado] ?? "default"}
-                      className="px-1.5 py-0 text-[10px]"
-                    >
-                      {e.estado}
-                    </Badge>
-                    {e.simulado && (
-                      <span
-                        className="text-[10px] font-semibold uppercase text-amber-600"
-                        title="Envío simulado: no llegó a ningún teléfono"
-                      >
-                        sim
-                      </span>
-                    )}
-                  </div>
-                  <span className="font-mono text-[12px] tabular-nums text-neutral-600">
-                    {e.telefono || "—"}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-neutral-700" title={e.cuerpo}>
-                      {e.cuerpo}
-                    </p>
-                    {e.citas_simplybook && (
-                      <p className="truncate text-[11px] text-neutral-400">
-                        {e.citas_simplybook.servicio_nombre ?? "servicio"} ·{" "}
-                        {fechaCorta(e.citas_simplybook.starts_at)}
-                        {e.provider_subid ? ` · ${e.provider_subid}` : ""}
-                      </p>
-                    )}
-                    {e.error_mensaje && (
-                      <p className="text-[11px] text-red-600">{e.error_mensaje}</p>
-                    )}
-                  </div>
-                  <span className="text-[11px] tabular-nums text-neutral-400 md:text-right">
-                    {fechaCorta(e.enviado_at ?? e.created_at)}
-                  </span>
-                </li>
-              ))}
-            </ul>
           )}
 
-          <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2">
-            <span className="text-[11px] tabular-nums text-neutral-400">
-              {desdeIndice}–{hastaIndice} de {enviosTotal}
-            </span>
-            <div className="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2"
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={page === 0 || loadingEnvios}
-              >
-                <ChevronLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2"
-                onClick={() => setPage((p) => p + 1)}
-                disabled={ultimaPagina || loadingEnvios}
-              >
-                <ChevronRight className="h-3.5 w-3.5" strokeWidth={1.5} />
-              </Button>
-            </div>
-          </div>
-        </Card>
+          <Panel>
+            <PanelHead title="Historial" meta={`${enviosTotal} envíos`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Segmented
+                  value={rango}
+                  options={RANGOS}
+                  onChange={(id) => {
+                    setRango(id);
+                    setPageEnvios(0);
+                  }}
+                />
+                <select
+                  value={estadoEnvio}
+                  onChange={(e) => {
+                    setEstadoEnvio(e.target.value as (typeof ESTADOS_ENVIO)[number]);
+                    setPageEnvios(0);
+                  }}
+                  className="h-[26px] rounded-lg border border-border bg-white px-2 text-[11px] capitalize"
+                  aria-label="Filtrar por estado"
+                >
+                  {ESTADOS_ENVIO.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </PanelHead>
 
-        <div className="grid gap-4">
-          <Card className="p-0" animate={false}>
-            <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-              <h2 className="text-[13px] font-semibold">Recordatorio</h2>
+            <div className="hidden grid-cols-[110px_130px_1fr_120px] gap-3 border-b border-border bg-neutral-50/60 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 md:grid">
+              <span>Estado</span>
+              <span>Teléfono</span>
+              <span>Mensaje</span>
+              <span className="text-right">Registro</span>
+            </div>
+
+            {loadingEnvios ? (
+              <div className="flex justify-center py-12">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-foreground" />
+              </div>
+            ) : envios.length === 0 ? (
+              <p className="px-4 py-12 text-center text-[13px] text-neutral-500">
+                Sin envíos en este periodo.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {envios.map((e) => {
+                  const pill = ENVIO_PILL[e.estado] ?? { label: e.estado, tono: "neutral" as Tono };
+                  return (
+                    <li
+                      key={e.id}
+                      className="grid gap-1.5 px-4 py-2.5 text-[13px] transition-colors hover:bg-neutral-50/80 md:grid-cols-[110px_130px_1fr_120px] md:items-start md:gap-3"
+                    >
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Pill tono={pill.tono}>{pill.label}</Pill>
+                        {e.simulado && (
+                          <span
+                            className="text-[10px] font-semibold uppercase text-amber-600"
+                            title="Envío simulado: no llegó a ningún teléfono"
+                          >
+                            sim
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono text-[12px] tabular-nums text-neutral-600">
+                        {e.telefono || "—"}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-neutral-700" title={e.cuerpo}>
+                          {e.cuerpo}
+                        </p>
+                        <p className="truncate text-[11px] text-neutral-400">
+                          {e.citas_simplybook
+                            ? `${e.citas_simplybook.servicio_nombre ?? "servicio"} · ${fechaCorta(
+                                e.citas_simplybook.starts_at
+                              )}`
+                            : "cita eliminada"}
+                          {e.provider_subid ? ` · ${e.provider_subid}` : ""}
+                        </p>
+                        {e.error_mensaje && (
+                          <p className="text-[11px] text-red-600">{e.error_mensaje}</p>
+                        )}
+                      </div>
+                      <span className="text-[11px] tabular-nums text-neutral-400 md:text-right">
+                        {fechaCorta(e.enviado_at ?? e.created_at)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            <Pager
+              desde={envioDesde}
+              hasta={envioHasta}
+              total={enviosTotal}
+              onPrev={() => setPageEnvios((p) => Math.max(0, p - 1))}
+              onNext={() => setPageEnvios((p) => p + 1)}
+              atStart={pageEnvios === 0}
+              atEnd={envioHasta >= enviosTotal}
+              disabled={loadingEnvios}
+            />
+          </Panel>
+        </div>
+      )}
+
+      {tab === "config" && (
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <Panel>
+            <PanelHead title="Recordatorio">
               <label className="flex items-center gap-1.5 text-[11px] text-neutral-500">
                 <input
                   type="checkbox"
@@ -568,14 +1031,12 @@ export default function SettingsSmsPage() {
                 />
                 Activo
               </label>
-            </div>
-            <div className="space-y-2.5 px-3 py-3">
+            </PanelHead>
+            <div className="space-y-3 px-4 py-3.5">
               <div className="space-y-1">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
-                  Modo
-                </span>
+                <span className="text-[11px] font-medium text-neutral-500">Cuándo se avisa</span>
                 <select
-                  className="h-8 w-full rounded-lg border border-border bg-white px-2 text-[12px]"
+                  className="h-9 w-full rounded-lg border border-border bg-white px-2 text-[13px]"
                   value={config.reminder_mode}
                   onChange={(e) =>
                     setConfig((c) => ({
@@ -584,22 +1045,22 @@ export default function SettingsSmsPage() {
                     }))
                   }
                 >
-                  <option value="hours_before">N horas antes</option>
-                  <option value="day_before_at_hour">Día anterior a hora fija</option>
+                  <option value="hours_before">N horas antes de la cita</option>
+                  <option value="day_before_at_hour">El día anterior, a hora fija</option>
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
-                    {config.reminder_mode === "hours_before" ? "Horas antes" : "Hora envío"}
+                  <span className="text-[11px] font-medium text-neutral-500">
+                    {config.reminder_mode === "hours_before" ? "Horas antes" : "Hora de envío"}
                   </span>
                   {config.reminder_mode === "hours_before" ? (
                     <Input
                       type="number"
                       min={1}
                       max={168}
-                      className="h-8 px-2 text-[12px] tabular-nums"
+                      className="h-9 px-2 text-[13px] tabular-nums"
                       value={config.reminder_hours_before}
                       onChange={(e) =>
                         setConfig((c) => ({
@@ -613,7 +1074,7 @@ export default function SettingsSmsPage() {
                       type="number"
                       min={0}
                       max={23}
-                      className="h-8 px-2 text-[12px] tabular-nums"
+                      className="h-9 px-2 text-[13px] tabular-nums"
                       value={config.reminder_send_hour}
                       onChange={(e) =>
                         setConfig((c) => ({
@@ -625,32 +1086,34 @@ export default function SettingsSmsPage() {
                   )}
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
-                    Zona
-                  </span>
+                  <span className="text-[11px] font-medium text-neutral-500">Zona horaria</span>
                   <Input
-                    className="h-8 px-2 text-[12px]"
+                    className="h-9 px-2 text-[13px]"
                     value={config.timezone}
                     onChange={(e) => setConfig((c) => ({ ...c, timezone: e.target.value }))}
                   />
                 </div>
               </div>
 
+              <p className="text-[11px] leading-relaxed text-neutral-400">
+                El cron repasa la agenda una vez al día a las {CRON_HOUR_UTC}:00 UTC, así que la
+                hora de envío solo se cumple si coincide con ese repaso.
+              </p>
+
               <Button
                 size="sm"
-                className="h-8 w-full text-xs"
+                className="h-9 w-full text-xs"
                 onClick={() => void saveConfig()}
                 disabled={savingConfig}
               >
-                {savingConfig ? "Guardando…" : "Guardar"}
+                {savingConfig ? "Guardando…" : "Guardar configuración"}
               </Button>
             </div>
-          </Card>
+          </Panel>
 
           {plantilla && (
-            <Card className="p-0" animate={false}>
-              <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-                <h2 className="text-[13px] font-semibold">Plantilla</h2>
+            <Panel>
+              <PanelHead title="Plantilla del recordatorio">
                 <label className="flex items-center gap-1.5 text-[11px] text-neutral-500">
                   <input
                     type="checkbox"
@@ -662,21 +1125,21 @@ export default function SettingsSmsPage() {
                   />
                   Activa
                 </label>
-              </div>
-              <div className="space-y-2 px-3 py-3">
+              </PanelHead>
+              <div className="space-y-3 px-4 py-3.5">
                 <textarea
                   rows={4}
-                  className="w-full resize-y rounded-lg border border-border bg-white px-2 py-1.5 text-[12px] leading-relaxed"
+                  className="w-full resize-y rounded-lg border border-border bg-white px-2.5 py-2 text-[13px] leading-relaxed"
                   value={plantilla.cuerpo}
                   onChange={(e) => setPlantilla((p) => (p ? { ...p, cuerpo: e.target.value } : p))}
                 />
-                <p className="font-mono text-[10px] leading-relaxed text-neutral-400">
+                <p className="font-mono text-[11px] leading-relaxed text-neutral-400">
                   {"{{servicio}} {{fecha}} {{hora}} {{profesional}} {{cliente}}"}
                 </p>
 
                 {preview && (
-                  <div className="rounded-lg border border-border bg-neutral-50 px-2 py-1.5">
-                    <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+                  <div className="rounded-lg border border-border bg-neutral-50 px-3 py-2">
+                    <div className="flex items-center justify-between text-[11px] font-medium text-neutral-500">
                       <span>Previsualización</span>
                       <span className="tabular-nums">
                         {preview.chars} car · {preview.sms} SMS ·{" "}
@@ -685,65 +1148,25 @@ export default function SettingsSmsPage() {
                         </span>
                       </span>
                     </div>
-                    <p className="mt-1 text-[12px] leading-snug text-neutral-600">{preview.texto}</p>
+                    <p className="mt-1.5 text-[13px] leading-snug text-neutral-700">
+                      {preview.texto}
+                    </p>
                   </div>
                 )}
 
                 <Button
                   size="sm"
-                  className="h-8 w-full text-xs"
+                  className="h-9 w-full text-xs"
                   onClick={() => void savePlantilla()}
                   disabled={savingPlantilla}
                 >
                   {savingPlantilla ? "Guardando…" : "Guardar plantilla"}
                 </Button>
               </div>
-            </Card>
+            </Panel>
           )}
-
-          <Card className="p-0" animate={false}>
-            <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-              <h2 className="text-[13px] font-semibold">Próximas citas</h2>
-              <span className="text-[11px] tabular-nums text-neutral-400">{citasTotal}</span>
-            </div>
-            {citas.length === 0 ? (
-              <p className="px-3 py-8 text-center text-xs text-neutral-500">
-                Sin citas sincronizadas.
-              </p>
-            ) : (
-              <ul className="max-h-[420px] divide-y divide-border overflow-y-auto">
-                {citas.map((c) => (
-                  <li key={c.id} className="px-3 py-2 text-[12px] hover:bg-neutral-50">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate font-medium">
-                        {c.servicio_nombre ?? "Servicio"}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-neutral-500">
-                        {fechaCorta(c.starts_at)}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-neutral-400">
-                      <span className="truncate font-mono">
-                        {c.cliente_telefono ?? "sin teléfono"}
-                      </span>
-                      <span className="shrink-0">
-                        {c.reminder_sent_at
-                          ? "avisada"
-                          : c.reminder_due_at
-                            ? `aviso ${fechaCorta(c.reminder_due_at)}`
-                            : "—"}
-                      </span>
-                    </div>
-                    {c.reminder_skipped_reason && (
-                      <p className="text-[10px] text-amber-600">{c.reminder_skipped_reason}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
         </div>
-      </div>
+      )}
     </div>
   );
 }

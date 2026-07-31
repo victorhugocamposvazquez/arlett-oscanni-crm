@@ -37,14 +37,27 @@ export type PhoneCheck =
   | { ok: true; phone: string }
   | { ok: false; reason: PhoneRejectReason; label: string };
 
+/** Repetición más larga del mismo dígito: 600000000 → 6. */
+function longestRun(digits: string): number {
+  let best = 1;
+  let run = 1;
+  for (let i = 1; i < digits.length; i += 1) {
+    run = digits[i] === digits[i - 1] ? run + 1 : 1;
+    if (run > best) best = run;
+  }
+  return best;
+}
+
 /**
  * Números de relleno que se cuelan en las reservas (+34 000 000 000,
- * 666666666, 612345678…). LabsMobile los factura igual que uno bueno, así que
- * conviene descartarlos antes de llamar a la API.
+ * 666666666, 611111111…). LabsMobile los factura igual que uno bueno, así que
+ * conviene descartarlos antes de llamar a la API. El umbral es una tirada de
+ * seis dígitos iguales para no tumbar móviles reales tipo 600600600.
  */
 function isFakeNumber(national: string): boolean {
   if (national.startsWith("0")) return true;
-  if (new Set(national).size <= 2) return true;
+  if (new Set(national).size <= 1) return true;
+  if (longestRun(national) >= 6) return true;
   const ascendente = [...national].every(
     (d, i, arr) => i === 0 || Number(d) === Number(arr[i - 1]) + 1
   );
@@ -69,6 +82,10 @@ export function checkPhoneForSms(
   });
 
   if (!raw || !raw.trim()) return reject("sin_telefono");
+
+  // Un fijo español entra aquí como 9 dígitos que empiezan por 8 o 9
+  const sueltos = raw.replace(/\D/g, "");
+  if (sueltos.length === 9 && /^[89]/.test(sueltos)) return reject("no_movil");
 
   const phone = normalizePhoneE164(raw, defaultCountry);
   if (!phone) return reject("formato");
