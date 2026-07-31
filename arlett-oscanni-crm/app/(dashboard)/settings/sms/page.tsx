@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { gsmLength, toGsmSafeText } from "@/lib/sms/gsm";
 import { renderSmsTemplate } from "@/lib/sms/templates";
 import { checkPhoneForSms } from "@/lib/sms/phone";
+import { aliasServicio, normalizeServicioKey } from "@/lib/sms/servicios";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
@@ -444,6 +445,11 @@ export default function SettingsSmsPage() {
   const [filtroCita, setFiltroCita] = useState<(typeof FILTROS_CITA)[number]["id"]>("todas");
   const [pageCitas, setPageCitas] = useState(0);
 
+  const [aliasServicios, setAliasServicios] = useState<Record<string, string>>({});
+  const [aliasDraft, setAliasDraft] = useState<Record<string, string>>({});
+  const [nombresSimplybook, setNombresSimplybook] = useState<Record<string, string>>({});
+  const [savingServicios, setSavingServicios] = useState(false);
+
   const [citaPrueba, setCitaPrueba] = useState<string>("");
   const [confirmandoPrueba, setConfirmandoPrueba] = useState(false);
   const [enviandoPrueba, setEnviandoPrueba] = useState(false);
@@ -466,7 +472,7 @@ export default function SettingsSmsPage() {
     setLoadingBase(true);
     setErrorEsquema(null);
     const supabase = createClient();
-    const [cfgRes, plantRes, citasRes] = await Promise.all([
+    const [cfgRes, plantRes, citasRes, serviciosRes] = await Promise.all([
       supabase.from("sms_config").select("*").eq("id", 1).maybeSingle(),
       supabase.from("sms_plantillas").select("*").eq("clave", "recordatorio_cita").maybeSingle(),
       supabase
@@ -477,7 +483,19 @@ export default function SettingsSmsPage() {
         .gte("starts_at", new Date().toISOString())
         .order("starts_at", { ascending: true })
         .limit(500),
+      supabase.from("sms_servicios").select("clave, nombre_simplybook, nombre_sms"),
     ]);
+
+    if (serviciosRes.error) setErrorEsquema(serviciosRes.error.message);
+    const alias: Record<string, string> = {};
+    const nombres: Record<string, string> = {};
+    for (const row of serviciosRes.data ?? []) {
+      alias[row.clave] = row.nombre_sms;
+      nombres[row.clave] = row.nombre_simplybook;
+    }
+    setAliasServicios(alias);
+    setAliasDraft(alias);
+    setNombresSimplybook(nombres);
 
     if (cfgRes.data) {
       setConfig({
@@ -713,6 +731,80 @@ export default function SettingsSmsPage() {
     return next;
   }, []);
 
+  /** Servicios vistos en la agenda más los que ya tengan nombre configurado. */
+  const catalogoServicios = useMemo(() => {
+    const porClave = new Map<string, string>();
+    for (const c of citas) {
+      if (!c.servicio_nombre) continue;
+      const clave = normalizeServicioKey(c.servicio_nombre);
+      if (!porClave.has(clave)) porClave.set(clave, c.servicio_nombre);
+    }
+    for (const [clave, nombre] of Object.entries(nombresSimplybook)) {
+      if (!porClave.has(clave)) porClave.set(clave, nombre);
+    }
+    return [...porClave.entries()]
+      .map(([clave, nombre]) => ({ clave, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  }, [citas, nombresSimplybook]);
+
+  /** Coste del recordatorio con ese nombre de servicio, para avisar del 2º SMS. */
+  const medirConServicio = useCallback(
+    (servicio: string) => {
+      if (!plantilla) return null;
+      const texto = toGsmSafeText(
+        renderSmsTemplate(plantilla.cuerpo, {
+          cliente: "Cliente",
+          servicio,
+          fecha: "31-07-2026",
+          hora: "11:30",
+          profesional: "Tere",
+        })
+      );
+      const gsm = gsmLength(texto);
+      const unicode = gsm === null;
+      const chars = gsm ?? [...texto].length;
+      return { chars, unicode, sms: Math.max(1, Math.ceil(chars / (unicode ? 70 : 160))) };
+    },
+    [plantilla]
+  );
+
+  const saveServicios = async () => {
+    setSavingServicios(true);
+    const supabase = createClient();
+    const ahora = new Date().toISOString();
+
+    const conNombre = catalogoServicios
+      .filter((s) => (aliasDraft[s.clave] ?? "").trim())
+      .map((s) => ({
+        clave: s.clave,
+        nombre_simplybook: s.nombre,
+        nombre_sms: aliasDraft[s.clave].trim(),
+        updated_at: ahora,
+      }));
+    // Vaciar el campo equivale a volver al nombre de SimplyBook
+    const sinNombre = catalogoServicios
+      .filter((s) => !(aliasDraft[s.clave] ?? "").trim())
+      .map((s) => s.clave);
+
+    let error: string | null = null;
+    if (conNombre.length > 0) {
+      const res = await supabase.from("sms_servicios").upsert(conNombre, { onConflict: "clave" });
+      if (res.error) error = res.error.message;
+    }
+    if (!error && sinNombre.length > 0) {
+      const res = await supabase.from("sms_servicios").delete().in("clave", sinNombre);
+      if (res.error) error = res.error.message;
+    }
+
+    setSavingServicios(false);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    toast.success("Nombres de servicios guardados");
+    await loadBase();
+  };
+
   /** Mismo texto que compondría el cron para esa cita, con sus reglas GSM. */
   const cuerpoParaCita = useCallback(
     (c: Cita): string => {
@@ -731,14 +823,17 @@ export default function SettingsSmsPage() {
       return toGsmSafeText(
         renderSmsTemplate(plantilla.cuerpo, {
           cliente: c.cliente_nombre ?? undefined,
-          servicio: c.servicio_nombre?.toUpperCase() ?? undefined,
+          servicio:
+            aliasServicio(c.servicio_nombre, aliasServicios) ??
+            c.servicio_nombre?.toUpperCase() ??
+            undefined,
           fecha,
           hora,
           profesional: c.profesional_nombre ?? undefined,
         })
       );
     },
-    [plantilla, config.timezone]
+    [plantilla, config.timezone, aliasServicios]
   );
 
   const citaSeleccionada = useMemo(
@@ -1491,6 +1586,71 @@ export default function SettingsSmsPage() {
               </div>
             </Panel>
           )}
+
+          <Panel className="lg:col-span-2">
+            <PanelHead title="Nombres de los servicios" meta={catalogoServicios.length}>
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => void saveServicios()}
+                disabled={savingServicios || catalogoServicios.length === 0}
+              >
+                {savingServicios ? "Guardando…" : "Guardar nombres"}
+              </Button>
+            </PanelHead>
+
+            <p className="border-b border-border px-4 py-2 text-[12px] leading-relaxed text-neutral-500">
+              Lo que escribas aquí es lo que lee el cliente, tal cual. Si lo dejas vacío se usa el
+              nombre de SimplyBook en mayúsculas. La columna de la derecha avisa si el recordatorio
+              se pasa de un SMS con ese nombre.
+            </p>
+
+            <div className="hidden grid-cols-[1fr_1fr_130px] gap-3 border-b border-border bg-neutral-50/60 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 md:grid">
+              <span>En SimplyBook</span>
+              <span>Nombre para el cliente</span>
+              <span className="text-right">Coste del aviso</span>
+            </div>
+
+            {catalogoServicios.length === 0 ? (
+              <p className="px-4 py-10 text-center text-[13px] text-neutral-500">
+                Aún no hay servicios. Sincroniza la agenda y aparecerán aquí.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {catalogoServicios.map((s) => {
+                  const valor = aliasDraft[s.clave] ?? "";
+                  const medida = medirConServicio(valor.trim() || s.nombre.toUpperCase());
+                  return (
+                    <li
+                      key={s.clave}
+                      className="grid gap-1.5 px-4 py-2 md:grid-cols-[1fr_1fr_130px] md:items-center md:gap-3"
+                    >
+                      <span className="truncate text-[13px] text-neutral-500" title={s.nombre}>
+                        {s.nombre}
+                      </span>
+                      <Input
+                        value={valor}
+                        placeholder={s.nombre.toUpperCase()}
+                        onChange={(e) =>
+                          setAliasDraft((d) => ({ ...d, [s.clave]: e.target.value }))
+                        }
+                        className="h-8 px-2 text-[13px]"
+                        aria-label={`Nombre en el SMS para ${s.nombre}`}
+                      />
+                      <span
+                        className={cn(
+                          "text-[11px] tabular-nums md:text-right",
+                          medida && medida.sms > 1 ? "font-semibold text-red-600" : "text-neutral-400"
+                        )}
+                      >
+                        {medida ? `${medida.chars} car · ${medida.sms} SMS` : "—"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Panel>
         </div>
       )}
 

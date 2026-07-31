@@ -19,6 +19,7 @@ import {
   sendSmsLabsMobile,
 } from "@/lib/sms/labsmobile";
 import { checkPhoneForSms, normalizePhoneE164 } from "@/lib/sms/phone";
+import { aliasServicio } from "@/lib/sms/servicios";
 import { renderSmsTemplate } from "@/lib/sms/templates";
 import { toGsmSafeText } from "@/lib/sms/gsm";
 
@@ -216,15 +217,28 @@ async function loadPlantillaRecordatorio(): Promise<PlantillaRow | null> {
   return data as PlantillaRow;
 }
 
+/** Alias de servicios configurados en el backoffice, por clave normalizada. */
+export async function loadAliasServicios(): Promise<Record<string, string>> {
+  const supabase = createAdminClient();
+  const { data } = await supabase.from("sms_servicios").select("clave, nombre_sms");
+  const out: Record<string, string> = {};
+  for (const row of data ?? []) {
+    if (row.nombre_sms?.trim()) out[row.clave] = row.nombre_sms.trim();
+  }
+  return out;
+}
+
 /**
- * Texto final del recordatorio. El servicio va en mayúsculas: destaca y disimula
- * las tildes que se pierden al pasar el texto a GSM ("DEPILACION LASER"), y la
+ * Texto final del recordatorio. Si el servicio tiene nombre propio configurado se
+ * respeta tal cual; si no, se usa el de SimplyBook en mayúsculas, que destaca y
+ * disimula las tildes que se pierden al pasar a GSM ("DEPILACION LASER"). La
  * fecha lleva guiones como en los avisos que ya mandaba SimplyBook (30-07-2026).
  */
 export function renderReminderBody(
   cita: Pick<CitaRow, "cliente_nombre" | "servicio_nombre" | "profesional_nombre" | "starts_at">,
   timeZone: string,
-  cuerpoPlantilla: string
+  cuerpoPlantilla: string,
+  aliasServicios: Record<string, string> = {}
 ): string {
   const startsAt = new Date(cita.starts_at);
   const fecha = formatInTimeZone(startsAt, timeZone, {
@@ -238,10 +252,15 @@ export function renderReminderBody(
     hour12: false,
   });
 
+  const servicio =
+    aliasServicio(cita.servicio_nombre, aliasServicios) ??
+    cita.servicio_nombre?.toUpperCase() ??
+    undefined;
+
   return toGsmSafeText(
     renderSmsTemplate(cuerpoPlantilla, {
       cliente: cita.cliente_nombre ?? undefined,
-      servicio: cita.servicio_nombre?.toUpperCase() ?? undefined,
+      servicio,
       fecha,
       hora,
       profesional: cita.profesional_nombre ?? undefined,
@@ -290,7 +309,12 @@ export async function sendReminderForCita(
   }
 
   const simulado = opciones.forzarReal ? false : isTestMode(config);
-  const cuerpo = renderReminderBody(cita, config.timezone, plantilla.cuerpo);
+  const cuerpo = renderReminderBody(
+    cita,
+    config.timezone,
+    plantilla.cuerpo,
+    await loadAliasServicios()
+  );
   const subid = generateSubid();
   const nowIso = new Date().toISOString();
   const result = await sendSmsLabsMobile(telefono.phone, cuerpo, { subid, test: simulado });
@@ -394,10 +418,11 @@ export async function processDueReminders(): Promise<{
   let failed = 0;
   const list = (citas ?? []) as CitaRow[];
   const simulado = isTestMode(config);
+  const alias = await loadAliasServicios();
 
   for (const cita of list) {
     const telefono = checkPhoneForSms(cita.cliente_telefono);
-    const cuerpo = renderReminderBody(cita, config.timezone, plantilla.cuerpo);
+    const cuerpo = renderReminderBody(cita, config.timezone, plantilla.cuerpo, alias);
 
     // Nada de llamar a LabsMobile con un fijo o un +34000000000: se factura igual.
     // La cita no se cierra: se anota el número rechazado, de modo que corregirlo

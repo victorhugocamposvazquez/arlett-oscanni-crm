@@ -322,6 +322,30 @@ export interface Database {
           updated_at?: string | null;
         };
       };
+      sms_servicios: {
+        Row: {
+          id: string;
+          clave: string;
+          nombre_simplybook: string;
+          nombre_sms: string;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          clave: string;
+          nombre_simplybook: string;
+          nombre_sms: string;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          clave?: string;
+          nombre_simplybook?: string;
+          nombre_sms?: string;
+          updated_at?: string | null;
+        };
+      };
       citas_simplybook: {
         Row: {
           id: string;

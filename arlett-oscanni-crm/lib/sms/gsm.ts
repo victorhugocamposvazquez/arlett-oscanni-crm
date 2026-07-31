@@ -10,6 +10,35 @@ const GSM_BASIC =
 /** Cuentan como dos caracteres al ir precedidos de un escape. */
 const GSM_EXTENDED = "^{}\\[~]|€\f";
 
+/**
+ * Puntuación tipográfica que no existe en GSM y que no se arregla quitando
+ * tildes. Un guion largo en "Vacumterapia – cavi" obliga a mandar el mensaje en
+ * Unicode y lo parte en dos SMS, así que se cambia por su equivalente de teclado.
+ */
+const PUNCTUATION_MAP: Record<string, string> = {
+  "\u2013": "-", // – guion corto tipográfico
+  "\u2014": "-", // — guion largo
+  "\u2012": "-",
+  "\u2015": "-",
+  "\u2212": "-", // − signo menos
+  "\u2018": "'", // ‘
+  "\u2019": "'", // ’
+  "\u201A": "'",
+  "\u2032": "'", // ′
+  "\u201C": '"', // “
+  "\u201D": '"', // ”
+  "\u201E": '"',
+  "\u2033": '"', // ″
+  "\u2026": "...", // …
+  "\u00B7": "-", // · punto medio
+  "\u2022": "-", // • viñeta
+  "\u00AA": "a", // ª
+  "\u00BA": "o", // º
+  "\u00A0": " ", // espacio duro
+  "\u200B": "",
+  "\u2044": "/", // ⁄
+};
+
 function isGsmChar(char: string): boolean {
   return GSM_BASIC.includes(char) || GSM_EXTENDED.includes(char);
 }
@@ -36,6 +65,11 @@ export function toGsmSafeText(text: string): string {
   for (const char of text) {
     if (isGsmChar(char)) {
       out += char;
+      continue;
+    }
+    const punctuation = PUNCTUATION_MAP[char];
+    if (punctuation !== undefined) {
+      out += punctuation;
       continue;
     }
     const stripped = char.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
