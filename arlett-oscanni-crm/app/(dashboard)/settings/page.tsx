@@ -136,7 +136,7 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-neutral-600">
-                Recordatorios automáticos de cita (SimplyBook → Esendex), plantillas e historial de envíos.
+                Recordatorios automáticos de cita (SimplyBook → LabsMobile), plantillas e historial de envíos.
               </p>
               <Button className="mt-4" variant="secondary" asChild>
                 <Link href="/settings/sms">Abrir backoffice SMS</Link>

@@ -381,8 +381,8 @@ export interface Database {
           cuerpo: string;
           estado: string;
           proveedor: string;
-          esendex_message_id: string | null;
-          esendex_batch_id: string | null;
+          provider_message_id: string | null;
+          provider_subid: string | null;
           error_mensaje: string | null;
           plantilla_clave: string | null;
           enviado_at: string | null;
@@ -397,8 +397,8 @@ export interface Database {
           cuerpo: string;
           estado?: string;
           proveedor?: string;
-          esendex_message_id?: string | null;
-          esendex_batch_id?: string | null;
+          provider_message_id?: string | null;
+          provider_subid?: string | null;
           error_mensaje?: string | null;
           plantilla_clave?: string | null;
           enviado_at?: string | null;
@@ -412,8 +412,8 @@ export interface Database {
           cuerpo?: string;
           estado?: string;
           proveedor?: string;
-          esendex_message_id?: string | null;
-          esendex_batch_id?: string | null;
+          provider_message_id?: string | null;
+          provider_subid?: string | null;
           error_mensaje?: string | null;
           plantilla_clave?: string | null;
           enviado_at?: string | null;

@@ -7,7 +7,11 @@ import {
   isSimplyBookConfigured,
   type SimplyBookBooking,
 } from "@/lib/sms/simplybook";
-import { sendSmsEsendex, isEsendexConfigured } from "@/lib/sms/esendex";
+import {
+  generateSubid,
+  isLabsMobileConfigured,
+  sendSmsLabsMobile,
+} from "@/lib/sms/labsmobile";
 import { normalizePhoneE164 } from "@/lib/sms/phone";
 import { renderSmsTemplate } from "@/lib/sms/templates";
 
@@ -178,13 +182,13 @@ export async function processDueReminders(): Promise<{
   if (!config.enabled) {
     return { processed: 0, sent: 0, skipped: 0, failed: 0, errors: ["Recordatorios desactivados en sms_config"] };
   }
-  if (!isEsendexConfigured()) {
+  if (!isLabsMobileConfigured()) {
     return {
       processed: 0,
       sent: 0,
       skipped: 0,
       failed: 0,
-      errors: ["Esendex no configurado (falta ESENDEX_*)"],
+      errors: ["LabsMobile no configurado (falta LABSMOBILE_USERNAME / LABSMOBILE_API_TOKEN)"],
     };
   }
 
@@ -273,7 +277,8 @@ export async function processDueReminders(): Promise<{
       continue;
     }
 
-    const result = await sendSmsEsendex(phone, cuerpo);
+    const subid = generateSubid();
+    const result = await sendSmsLabsMobile(phone, cuerpo, { subid });
     if (!result.ok) {
       failed += 1;
       errors.push(`${cita.simplybook_id}: ${result.error}`);
@@ -309,8 +314,8 @@ export async function processDueReminders(): Promise<{
       telefono: phone,
       cuerpo,
       estado: "enviado",
-      esendex_message_id: result.messageId,
-      esendex_batch_id: result.batchId,
+      proveedor: "labsmobile",
+      provider_subid: result.subid ?? subid,
       plantilla_clave: plantilla.clave,
       enviado_at: nowIso,
     });

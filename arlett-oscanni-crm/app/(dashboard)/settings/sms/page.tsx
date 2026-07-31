@@ -39,7 +39,7 @@ type SmsEnvio = {
   enviado_at: string | null;
   created_at: string;
   plantilla_clave: string | null;
-  esendex_message_id: string | null;
+  provider_subid: string | null;
   citas_simplybook: {
     cliente_nombre: string | null;
     servicio_nombre: string | null;
@@ -69,7 +69,7 @@ const ESTADO_VARIANT: Record<string, "borrador" | "emitida" | "pagada"> = {
 };
 
 export default function SettingsSmsPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -107,7 +107,7 @@ export default function SettingsSmsPage() {
       supabase
         .from("sms_envios")
         .select(
-          "id, telefono, cuerpo, estado, error_mensaje, enviado_at, created_at, plantilla_clave, esendex_message_id, citas_simplybook(cliente_nombre, servicio_nombre, starts_at)"
+          "id, telefono, cuerpo, estado, error_mensaje, enviado_at, created_at, plantilla_clave, provider_subid, citas_simplybook(cliente_nombre, servicio_nombre, starts_at)"
         )
         .order("created_at", { ascending: false })
         .limit(50),
@@ -251,7 +251,7 @@ export default function SettingsSmsPage() {
           { label: "SMS / SimplyBook" },
         ]}
         title="SMS y recordatorios"
-        description="SimplyBook → recordatorio automático → Esendex. Cron diario ~21:00 (hora española). Solo administración."
+        description="SimplyBook → recordatorio automático → LabsMobile. Cron diario ~21:00 (hora española). Solo administración."
         actions={
           <Button variant="secondary" onClick={() => void runCronNow()} disabled={syncing || loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} strokeWidth={1.5} />
@@ -351,7 +351,7 @@ export default function SettingsSmsPage() {
               </Button>
               <p className="text-xs text-neutral-500">
                 El cron de Vercel corre cada día a las 19:00 UTC (≈ 21:00 en España en horario de verano).
-                Credenciales SimplyBook y Esendex van en variables de entorno del servidor.
+                Credenciales SimplyBook y LabsMobile van en variables de entorno del servidor.
               </p>
             </CardContent>
           </Card>
@@ -466,8 +466,8 @@ export default function SettingsSmsPage() {
                       {e.error_mensaje && (
                         <p className="text-red-600">{e.error_mensaje}</p>
                       )}
-                      {e.esendex_message_id && (
-                        <p className="text-xs text-neutral-400">ID Esendex: {e.esendex_message_id}</p>
+                      {e.provider_subid && (
+                        <p className="text-xs text-neutral-400">ID LabsMobile: {e.provider_subid}</p>
                       )}
                     </li>
                   ))}
