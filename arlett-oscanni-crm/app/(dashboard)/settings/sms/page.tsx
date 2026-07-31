@@ -21,6 +21,7 @@ type SmsConfig = {
   reminder_hours_before: number;
   reminder_send_hour: number;
   timezone: string;
+  test_mode: boolean;
 };
 
 type Plantilla = {
@@ -412,11 +413,13 @@ export default function SettingsSmsPage() {
     reminder_hours_before: 24,
     reminder_send_hour: 21,
     timezone: "Europe/Madrid",
+    test_mode: true,
   });
   const [plantilla, setPlantilla] = useState<Plantilla | null>(null);
   const [citas, setCitas] = useState<Cita[]>([]);
   const [enviosPorCita, setEnviosPorCita] = useState<Record<string, UltimoEnvio>>({});
   const [modoPrueba, setModoPrueba] = useState<boolean | null>(null);
+  const [forzadoPorEntorno, setForzadoPorEntorno] = useState(false);
   const [errorEsquema, setErrorEsquema] = useState<string | null>(null);
 
   const [envios, setEnvios] = useState<SmsEnvio[]>([]);
@@ -475,6 +478,7 @@ export default function SettingsSmsPage() {
         reminder_hours_before: Number(cfgRes.data.reminder_hours_before ?? 24),
         reminder_send_hour: Number(cfgRes.data.reminder_send_hour ?? 21),
         timezone: String(cfgRes.data.timezone ?? "Europe/Madrid"),
+        test_mode: Boolean(cfgRes.data.test_mode),
       });
     }
     if (plantRes.data) setPlantilla(plantRes.data as Plantilla);
@@ -567,8 +571,9 @@ export default function SettingsSmsPage() {
     void (async () => {
       try {
         const res = await fetch("/api/admin/sms-run");
-        const json = (await res.json()) as { simulado?: boolean };
+        const json = (await res.json()) as { simulado?: boolean; forzadoPorEntorno?: boolean };
         setModoPrueba(Boolean(json.simulado));
+        setForzadoPorEntorno(Boolean(json.forzadoPorEntorno));
       } catch {
         setModoPrueba(null);
       }
@@ -590,6 +595,7 @@ export default function SettingsSmsPage() {
         reminder_hours_before: config.reminder_hours_before,
         reminder_send_hour: config.reminder_send_hour,
         timezone: config.timezone,
+        test_mode: config.test_mode,
         updated_at: new Date().toISOString(),
       })
       .eq("id", 1);
@@ -598,7 +604,12 @@ export default function SettingsSmsPage() {
       toast.error(error.message);
       return;
     }
-    toast.success("Configuración guardada");
+    setModoPrueba(config.test_mode || forzadoPorEntorno);
+    toast.success(
+      config.test_mode || forzadoPorEntorno
+        ? "Configuración guardada · modo prueba activo"
+        : "Configuración guardada · los recordatorios saldrán de verdad"
+    );
   };
 
   const savePlantilla = async () => {
@@ -788,12 +799,29 @@ export default function SettingsSmsPage() {
       {modoPrueba && (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-900">
           <span className="font-semibold">Modo de prueba activo.</span> LabsMobile acepta los
-          envíos y los damos por buenos, pero no entrega nada: ningún SMS marcado como enviado ha
-          llegado a un móvil. Para enviar de verdad, quita{" "}
-          <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">
-            LABSMOBILE_TEST_MODE
-          </code>{" "}
-          en Vercel y vuelve a desplegar.
+          envíos, pero no entrega nada: ningún SMS marcado como enviado ha llegado a un móvil.{" "}
+          {forzadoPorEntorno ? (
+            <>
+              Está forzado por la variable{" "}
+              <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">
+                LABSMOBILE_TEST_MODE
+              </code>{" "}
+              en Vercel, así que el interruptor de Configuración no puede desactivarlo: quita la
+              variable y vuelve a desplegar.
+            </>
+          ) : (
+            <>
+              Puedes desactivarlo en{" "}
+              <button
+                type="button"
+                onClick={() => setTab("config")}
+                className="font-semibold underline underline-offset-2"
+              >
+                Configuración
+              </button>
+              .
+            </>
+          )}
         </div>
       )}
 
@@ -1194,6 +1222,37 @@ export default function SettingsSmsPage() {
                 El cron repasa la agenda una vez al día a las {CRON_HOUR_UTC}:00 UTC, así que la
                 hora de envío solo se cumple si coincide con ese repaso.
               </p>
+
+              <div
+                className={cn(
+                  "rounded-lg border px-3 py-2.5",
+                  config.test_mode || forzadoPorEntorno
+                    ? "border-amber-200 bg-amber-50"
+                    : "border-border bg-neutral-50"
+                )}
+              >
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={config.test_mode || forzadoPorEntorno}
+                    disabled={forzadoPorEntorno}
+                    onChange={(e) => setConfig((c) => ({ ...c, test_mode: e.target.checked }))}
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-border disabled:opacity-60"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium text-foreground">
+                      Modo prueba
+                    </span>
+                    <span className="mt-0.5 block text-[11px] leading-relaxed text-neutral-500">
+                      {forzadoPorEntorno
+                        ? "Forzado por LABSMOBILE_TEST_MODE en Vercel. Quita esa variable para poder cambiarlo desde aquí."
+                        : config.test_mode
+                          ? "Los recordatorios se registran pero LabsMobile no los entrega ni los cobra. Desactívalo cuando quieras enviar de verdad."
+                          : "Los recordatorios saldrán de verdad a los móviles de los clientes y LabsMobile los facturará."}
+                    </span>
+                  </span>
+                </label>
+              </div>
 
               <Button
                 size="sm"

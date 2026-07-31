@@ -274,6 +274,7 @@ export interface Database {
           reminder_hours_before: number;
           reminder_send_hour: number;
           timezone: string;
+          test_mode: boolean;
           updated_at: string | null;
         };
         Insert: {
@@ -283,6 +284,7 @@ export interface Database {
           reminder_hours_before?: number;
           reminder_send_hour?: number;
           timezone?: string;
+          test_mode?: boolean;
           updated_at?: string | null;
         };
         Update: {
@@ -291,6 +293,7 @@ export interface Database {
           reminder_hours_before?: number;
           reminder_send_hour?: number;
           timezone?: string;
+          test_mode?: boolean;
           updated_at?: string | null;
         };
       };

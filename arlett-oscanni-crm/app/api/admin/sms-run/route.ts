@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { processDueReminders, syncSimplyBookAppointments } from "@/lib/sms/reminders";
+import {
+  isTestMode,
+  loadSmsConfig,
+  processDueReminders,
+  syncSimplyBookAppointments,
+} from "@/lib/sms/reminders";
 import { isSimplyBookConfigured } from "@/lib/sms/simplybook";
-import { isLabsMobileConfigured, isLabsMobileTestMode } from "@/lib/sms/labsmobile";
+import { isLabsMobileConfigured, isLabsMobileTestModeForced } from "@/lib/sms/labsmobile";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -33,9 +38,12 @@ export async function GET() {
   const denied = await denyIfNotAdmin();
   if (denied) return denied;
 
+  const config = await loadSmsConfig();
   return NextResponse.json({
     ok: true,
-    simulado: isLabsMobileTestMode(),
+    simulado: isTestMode(config),
+    // Con el candado echado el interruptor del backoffice no puede desactivarlo
+    forzadoPorEntorno: isLabsMobileTestModeForced(),
     labsmobile: isLabsMobileConfigured(),
     simplybook: isSimplyBookConfigured(),
   });
@@ -53,7 +61,12 @@ export async function POST() {
     }
     const send = await processDueReminders();
 
-    return NextResponse.json({ ok: true, sync, send, simulado: isLabsMobileTestMode() });
+    return NextResponse.json({
+      ok: true,
+      sync,
+      send,
+      simulado: isTestMode(await loadSmsConfig()),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error";
     console.error("[admin/sms-run]", msg);

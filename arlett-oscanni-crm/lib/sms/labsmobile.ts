@@ -21,7 +21,12 @@ export function isLabsMobileConfigured(): boolean {
   return getLabsMobileConfig() !== null;
 }
 
-export function isLabsMobileTestMode(): boolean {
+/**
+ * Candado de entorno: con LABSMOBILE_TEST_MODE=1 nada sale de verdad, por más
+ * que el backoffice tenga el modo prueba desactivado. Sirve para blindar un
+ * entorno (preview, local) sin depender de lo que haya en la base de datos.
+ */
+export function isLabsMobileTestModeForced(): boolean {
   return getLabsMobileConfig()?.testMode ?? false;
 }
 
@@ -39,7 +44,7 @@ export function generateSubid(): string {
 export async function sendSmsLabsMobile(
   toE164: string,
   body: string,
-  options: { subid?: string } = {}
+  options: { subid?: string; test?: boolean } = {}
 ): Promise<LabsMobileSendResult> {
   const cfg = getLabsMobileConfig();
   if (!cfg) {
@@ -64,7 +69,7 @@ export async function sendSmsLabsMobile(
   if (cfg.sender) payload.tpoa = cfg.sender;
   if (options.subid) payload.subid = options.subid;
   if (cfg.ackUrl) payload.ackurl = cfg.ackUrl;
-  if (cfg.testMode) payload.test = 1;
+  if (options.test || cfg.testMode) payload.test = 1;
 
   let res: Response;
   try {

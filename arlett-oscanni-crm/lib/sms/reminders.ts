@@ -15,7 +15,7 @@ import { DEFAULT_TIMEZONE, zonedNaiveToDate } from "@/lib/sms/tz";
 import {
   generateSubid,
   isLabsMobileConfigured,
-  isLabsMobileTestMode,
+  isLabsMobileTestModeForced,
   sendSmsLabsMobile,
 } from "@/lib/sms/labsmobile";
 import { checkPhoneForSms, normalizePhoneE164 } from "@/lib/sms/phone";
@@ -29,7 +29,13 @@ export type SmsConfigRow = {
   reminder_hours_before: number;
   reminder_send_hour: number;
   timezone: string;
+  test_mode: boolean;
 };
+
+/** El modo prueba se decide en la configuración, pero el entorno puede forzarlo. */
+export function isTestMode(config: Pick<SmsConfigRow, "test_mode">): boolean {
+  return Boolean(config.test_mode) || isLabsMobileTestModeForced();
+}
 
 function formatInTimeZone(
   date: Date,
@@ -102,6 +108,7 @@ export async function loadSmsConfig(): Promise<SmsConfigRow> {
       reminder_hours_before: 24,
       reminder_send_hour: 21,
       timezone: "Europe/Madrid",
+      test_mode: true,
     };
   }
   return data as SmsConfigRow;
@@ -257,7 +264,7 @@ export async function processDueReminders(): Promise<{
   let skipped = 0;
   let failed = 0;
   const list = (citas ?? []) as CitaRow[];
-  const simulado = isLabsMobileTestMode();
+  const simulado = isTestMode(config);
 
   for (const cita of list) {
     const telefono = checkPhoneForSms(cita.cliente_telefono);
@@ -321,7 +328,7 @@ export async function processDueReminders(): Promise<{
 
     const phone = telefono.phone;
     const subid = generateSubid();
-    const result = await sendSmsLabsMobile(phone, cuerpo, { subid });
+    const result = await sendSmsLabsMobile(phone, cuerpo, { subid, test: simulado });
     if (!result.ok) {
       failed += 1;
       errors.push(`${cita.simplybook_id}: ${result.error}`);
