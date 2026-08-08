@@ -96,8 +96,8 @@ const ENVIO_SELECT =
 
 const PAGE_SIZE = 20;
 
-/** El cron de Vercel corre a las 19:00 UTC (≈21:00 en España). */
-const CRON_HOUR_UTC = 19;
+/** TEMP prueba: 11:00 UTC = 13:00 Madrid. Volver a 19 (=21:00) después. */
+const CRON_HOUR_UTC = 11;
 
 const TABS = [
   { id: "citas", label: "Próximas citas" },
